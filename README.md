@@ -36,7 +36,7 @@ Pre-requisites:
 
 - Create a Copernicus Data Space Ecosystem account: [https://dataspace.copernicus.eu/](https://dataspace.copernicus.eu/) 
 - Install openEO python API, executing in QGIS python console two commands:
-  import pip
-  pip.main(["install","openeo"])
+  - import pip
+  - pip.main(["install","openeo"])
 
 
