@@ -24,7 +24,7 @@ CONST_SETTINGS_LAST_PATH_TAG = "last_path"
 CONST_SETTINGS_INITIAL_DATE_TAG = "inital_date"
 CONST_SETTINGS_FINAL_DATE_TAG = "final_date"
 CONST_SETTINGS_OUTPUT_PATH_TAG = "output_path"
-CONST_MINIMAL_DATES_INTERVAL = 15
+CONST_MINIMAL_DATES_INTERVAL = 5
 # CONST_EARTH_ENGINE_PLUGIN = "ee_plugin"
 CONST_OPENEO_PIP_INSTALL_PATH = '\\site-packages\\openeo'
 CONST_OPENEO_AUTH_PATH = '\\Scripts\\openeo-auth.exe'
@@ -36,5 +36,13 @@ openEO_providers['Copernicus Data Space Ecosystem'] = 'openeo.dataspace.copernic
 feature_field_id_candidates = []
 feature_field_id_candidates.append("id")
 feature_field_id_candidates.append("fid")
+CONST_OPENEO_CRS_EPSG_STRING = 'EPSG:4326'
+openeo_sentinel2_l2a_tag = "SENTINEL2_L2A"
+openeo_sentinel2_bands=["B02", "B04", "B08", "B11", "SCL"]
+CONST_PYTHON_CONSOLE_TAG = 'PythonConsole'
+CONST_OUTPUT_PATH_SUFFIX_NDVI = '_ndvi'
+CONST_OUTPUT_PATH_SUFFIX_11_8_2 = '_11_8_2'
+
+
 
 

@@ -26,16 +26,18 @@ import os, sys
 import webbrowser
 import subprocess
 from osgeo import gdal, osr, ogr
+import json
 
 from qgis.PyQt.QtCore import *
 from qgis.PyQt.QtGui import *
 from qgis.PyQt import QtGui, QtWidgets, uic
 from qgis.PyQt.QtCore import pyqtSignal, QSettings, QTranslator, qVersion, \
     QCoreApplication, QFileInfo, QDir, QObject, QDate, QEvent
-from qgis.PyQt.QtWidgets import QMessageBox, QInputDialog, QLineEdit, QFileDialog
+from qgis.PyQt.QtWidgets import QMessageBox, QInputDialog, QLineEdit, QFileDialog, QDockWidget
 from qgis.core import QgsApplication, QgsDataSourceUri,QgsMapLayerProxyModel, QgsRectangle, QgsGeometry, \
     QgsCoordinateReferenceSystem, QgsCoordinateTransform, QgsProject, QgsVectorLayer, QgsMapLayer
 from qgis.core import *
+import console
 
 FORM_CLASS, _ = uic.loadUiType(os.path.join(
     os.path.dirname(__file__), 'rs_ard_time_series_downloader_dockwidget_base.ui'))
@@ -265,6 +267,11 @@ class RemoteSensingARDTimeSeriesDownloaderDockWidget(QtWidgets.QDockWidget, FORM
                                 .format(str(definitions.CONST_MINIMAL_DATES_INTERVAL-1)))
             self.display_msg_error(str_error)
             return
+        str_first_date = self.initialDateEdit.date().toString('yyyy-MM-dd')
+        str_last_date = self.finalDateEdit.date().toString('yyyy-MM-dd')
+        temporal_extent = []  # ["2024-06-01", "2024-06-04"]
+        temporal_extent.append(str_first_date)
+        temporal_extent.append(str_last_date)
         outputPath = self.outputPathLineEdit.text()
         if not outputPath:
             # str_error = 'Clase: ' + type(self).__name__ + ', function: ' + sys._getframe().f_code.co_name
@@ -273,7 +280,7 @@ class RemoteSensingARDTimeSeriesDownloaderDockWidget(QtWidgets.QDockWidget, FORM
             self.display_msg_error(str_error)
             return
         ogr_geometries_by_id = {}
-        selection_crs = osr.SpatialReference()
+        source_crs = osr.SpatialReference()
         if self.roiMapCanvasRadioButton.isChecked():
             map_canvas_extent_wkt = self.iface.mapCanvas().extent().asWktPolygon()
             try:
@@ -286,7 +293,7 @@ class RemoteSensingARDTimeSeriesDownloaderDockWidget(QtWidgets.QDockWidget, FORM
             map_canvas_crs_epsg_code_string = QgsProject.instance().crs().authid()
             try:
                 # map_canvas_crs.ImportFromEPSG(map_canvas_crs_epsg_code)
-                selection_crs.SetFromUserInput(map_canvas_crs_epsg_code_string)
+                source_crs.SetFromUserInput(map_canvas_crs_epsg_code_string)
             except Exception as e:
                 str_error = ('GDAL Error: ' + gdal.GetLastErrorMsg())
                 self.display_msg_error(str_error)
@@ -317,28 +324,165 @@ class RemoteSensingARDTimeSeriesDownloaderDockWidget(QtWidgets.QDockWidget, FORM
             selected_layer_crs_epsg_code_string = self.iface.activeLayer().crs().authid()
             try:
                 # map_canvas_crs.ImportFromEPSG(map_canvas_crs_epsg_code)
-                selection_crs.SetFromUserInput(selected_layer_crs_epsg_code_string)
+                source_crs.SetFromUserInput(selected_layer_crs_epsg_code_string)
             except Exception as e:
                 str_error = ('GDAL Error: ' + gdal.GetLastErrorMsg())
                 self.display_msg_error(str_error)
                 return
             field_id_name = ''
-            for field in self.iface.activeLayer().fields():
-                field_name = field.name
-                for field_id_candidate in definitions.feature_field_id_candidates:
+            for field_id_candidate in definitions.feature_field_id_candidates:
+                for field in self.iface.activeLayer().fields():
+                    field_name = field.name()
                     if field_name.lower() == field_id_candidate.lower():
                         field_id_name = field_name
                         break
+                if field_id_name:
+                    break
             cont = 0
             for selectedFeature in self.iface.activeLayer().selectedFeatures():
                 cont = cont + 1
                 feature_id = ''
                 if field_id_name:
-                    feature_id = selectedFeature[field_id_name]
+                    feature_id = str(selectedFeature[field_id_name])
                 else:
                     feature_id = str(cont)
-                ogr_polygon = selectedFeature.geometry()
+                feature_geometry = selectedFeature.geometry()
+                geometry_wkt = feature_geometry.asWkt()
+                try:
+                    ogr_polygon = ogr.CreateGeometryFromWkt(geometry_wkt)
+                except Exception as e:
+                    str_error = ('GDAL Error: ' + gdal.GetLastErrorMsg())
+                    self.display_msg_error(str_error)
+                    return
                 ogr_geometries_by_id[feature_id] = ogr_polygon
+        source_crs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+        target_crs = osr.SpatialReference()
+        try:
+            # map_canvas_crs.ImportFromEPSG(map_canvas_crs_epsg_code)
+            target_crs.SetFromUserInput(definitions.CONST_OPENEO_CRS_EPSG_STRING)
+        except Exception as e:
+            str_error = ('GDAL Error: ' + gdal.GetLastErrorMsg())
+            self.display_msg_error(str_error)
+            return
+        target_crs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+        crs_operation = osr.CoordinateTransformation(source_crs, target_crs)
+
+        pythonConsole = self.iface.mainWindow().findChild(QDockWidget, 'PythonConsole')
+        if not pythonConsole or not pythonConsole.isVisible():
+            self.iface.actionShowPythonDialog().trigger()
+            pythonConsole = self.iface.mainWindow().findChild(QDockWidget, 'PythonConsole')
+            pythonConsole.setVisible(True)
+            self.iface.mainWindow().update()
+            yo = 1
+        return
+        # consoleWidget = self.iface.mainWindow().findChild(QDockWidget, definitions.CONST_PYTHON_CONSOLE_TAG)
+        # if not consoleWidget:
+        #     self.iface.actionShowPythonDialog().trigger()
+        # for x in self.iface.mainWindow().findChildren(QDockWidget):
+        #     object_name = x.objectName()
+        #     if x.objectName() == definitions.CONST_PYTHON_CONSOLE_TAG:
+        #         x.setVisible(True)
+        cont = 0
+        for feature_id in ogr_geometries_by_id:
+            ogr_geometry = ogr_geometries_by_id[feature_id]
+            ogr_geometry_as_wkt = ogr_geometry.ExportToWkt()
+            ogr_geometry.Transform(crs_operation)
+            ogr_geometry_crs_operation_as_wkt = ogr_geometry.ExportToWkt()
+            env = ogr_geometry.GetEnvelope()
+            feature_min_longitude = env[0]
+            feature_min_latitude = env[2]
+            feature_max_longitude = env[1]
+            feature_max_latitude = env[3]
+            feature_output_path = outputPath + '/' + feature_id
+            feature_output_path_ndvi = feature_output_path + definitions.CONST_OUTPUT_PATH_SUFFIX_NDVI
+            feature_output_path_ndvi = os.path.normpath(feature_output_path_ndvi)
+            if not os.path.exists(feature_output_path_ndvi):
+                try:
+                    os.mkdir(feature_output_path_ndvi)
+                except FileExistsError:
+                    str_error = f"\nDirectory '{feature_output_path_ndvi}' already exists."
+                    self.display_msg_error(str_error)
+                    for x in self.iface.mainWindow().findChildren(QDockWidget):
+                        if x.objectName() == definitions.CONST_PYTHON_CONSOLE_TAG:
+                            x.setVisible(False)
+                    return
+                except PermissionError:
+                    str_error = f"\nPermission denied: Unable to create '{feature_output_path_ndvi}'."
+                    self.display_msg_error(str_error)
+                    for x in self.iface.mainWindow().findChildren(QDockWidget):
+                        if x.objectName() == definitions.CONST_PYTHON_CONSOLE_TAG:
+                            x.setVisible(False)
+                    return
+                except Exception as e:
+                    str_error = f"\nAn error occurred: {e}"
+                    self.display_msg_error(str_error)
+                    for x in self.iface.mainWindow().findChildren(QDockWidget):
+                        if x.objectName() == definitions.CONST_PYTHON_CONSOLE_TAG:
+                            x.setVisible(False)
+                    return
+            feature_output_path_agronomy = feature_output_path + definitions.CONST_OUTPUT_PATH_SUFFIX_11_8_2
+            feature_output_path_agronomy = os.path.normpath(feature_output_path_agronomy)
+            if not os.path.exists(feature_output_path_agronomy):
+                try:
+                    os.mkdir(feature_output_path_agronomy)
+                except FileExistsError:
+                    str_error = f"\nDirectory '{feature_output_path_agronomy}' already exists."
+                    self.display_msg_error(str_error)
+                    for x in self.iface.mainWindow().findChildren(QDockWidget):
+                        if x.objectName() == definitions.CONST_PYTHON_CONSOLE_TAG:
+                            x.setVisible(False)
+                    return
+                except PermissionError:
+                    str_error = f"\nPermission denied: Unable to create '{feature_output_path_agronomy}'."
+                    self.display_msg_error(str_error)
+                    for x in self.iface.mainWindow().findChildren(QDockWidget):
+                        if x.objectName() == definitions.CONST_PYTHON_CONSOLE_TAG:
+                            x.setVisible(False)
+                    return
+                except Exception as e:
+                    str_error = f"\nAn error occurred: {e}"
+                    self.display_msg_error(str_error)
+                    for x in self.iface.mainWindow().findChildren(QDockWidget):
+                        if x.objectName() == definitions.CONST_PYTHON_CONSOLE_TAG:
+                            x.setVisible(False)
+                    return
+            spatial_extent = {}
+            spatial_extent["west"] = feature_min_longitude
+            spatial_extent["south"] = feature_min_latitude
+            spatial_extent["east"] = feature_max_longitude
+            spatial_extent["north"] = feature_max_latitude
+            bands = definitions.openeo_sentinel2_bands
+            s2cube = self.connection.load_collection(definitions.openeo_sentinel2_l2a_tag,
+                                                     spatial_extent,
+                                                     temporal_extent,
+                                                     bands,
+                                                     )
+            blue = s2cube.band("B02")
+            red = s2cube.band("B04")
+            nir = s2cube.band("B08")
+            swir_1 = s2cube.band("B11")
+            datacube_agronomy = s2cube.filter_bands(bands=["B11", "B08", "B02"])
+            datacube_ndvi = (nir - red) / (nir + red)
+            datacube_ndvi_as_json_string = datacube_ndvi.to_json()
+            datacube_ndvi_as_dict = json.loads(datacube_ndvi_as_json_string)
+            result_ndvi = datacube_ndvi.save_result("GTiff")
+            job_ndvi = result_ndvi.create_job()
+            print("\nProcessing NDVI for feature: {}".format(feature_id))
+            job_ndvi.start_and_wait()
+            job_ndvi.get_results().download_files(feature_output_path_ndvi)
+            print("\n ... Process finished")
+            result_agronomy= datacube_agronomy.save_result("GTiff")
+            job_agronomy = result_agronomy.create_job()
+            print("\nProcessing agronomy combination for feature: {}".format(feature_id))
+            job_agronomy.start_and_wait()
+            job_agronomy.get_results().download_files(feature_output_path_agronomy)
+            print("\n ... Process finished")
+            cont = cont + 1
+            print("\n ... {} elements remain to be processed".format(str(len(ogr_geometries_by_id) - 1)))
+            yo = 1
+        for x in self.iface.mainWindow().findChildren(QDockWidget):
+            if x.objectName() == definitions.CONST_PYTHON_CONSOLE_TAG:
+                x.setVisible(False)
         yo = 1
         # datacube = self.connection.load_collection(
         #     "SENTINEL2_L2A",
