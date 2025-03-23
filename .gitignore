@@ -1,0 +1,14 @@
+**/debug
+**/release
+**/.idea
+**/_pycache_
+
+**/*.obj
+**/*.pro.user
+**/*.pro.user.*
+
+**/*.svn-base
+**/.svn
+
+!.gitignore
+!.htaccess
