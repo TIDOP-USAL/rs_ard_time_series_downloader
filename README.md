@@ -1,8 +1,8 @@
-# **FOREST FIRE SEVERITY ESTIMATION - QGIS**
+# **REMOTE SENSING ANALYSIS READY DATA TIME SERIES DOWNLOADER - QGIS**
 
-## A plugin to estimate forest fire severity using DNBR index from Sentinel-2 and Earth Engine
+## A QGIS plugin to download ARD time series from remote sensing using openEO
 
-[https://github.com/UCLM-PAFyC/forest_fire_severity_estimation](https://github.com/UCLM-PAFyC/forest_fire_severity_estimation)
+[https://github.com/TIDOP-USAL/rs_ard_time_series_downloader](https://github.com/TIDOP-USAL/rs_ard_time_series_downloader)
 
 ## **David Hernández López**
 
@@ -34,13 +34,9 @@ Contact the author to request any custom development
 
 Pre-requisites:
 
-- Install Google Earth Plugin from QGIS Python Plugins Repository
-- Create Google Earth Engine API KEY when plugin require, using your Google account
+- Create a Copernicus Data Space Ecosystem account: [https://dataspace.copernicus.eu/](https://dataspace.copernicus.eu/) 
+- Install openEO python API, executing in QGIS python console two commands:
+  import pip
+  pip.main(["install","openeo"])
 
-Any use of this version is allowed without 
-responsibility for the author
-
-To do ...
-- Create a user manual
-- ...
 
