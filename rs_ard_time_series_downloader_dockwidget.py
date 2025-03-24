@@ -366,22 +366,12 @@ class RemoteSensingARDTimeSeriesDownloaderDockWidget(QtWidgets.QDockWidget, FORM
             return
         target_crs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
         crs_operation = osr.CoordinateTransformation(source_crs, target_crs)
-
-        pythonConsole = self.iface.mainWindow().findChild(QDockWidget, 'PythonConsole')
-        if not pythonConsole or not pythonConsole.isVisible():
-            self.iface.actionShowPythonDialog().trigger()
-            pythonConsole = self.iface.mainWindow().findChild(QDockWidget, 'PythonConsole')
-            pythonConsole.setVisible(True)
-            self.iface.mainWindow().update()
-            yo = 1
-        return
-        # consoleWidget = self.iface.mainWindow().findChild(QDockWidget, definitions.CONST_PYTHON_CONSOLE_TAG)
-        # if not consoleWidget:
+        # pythonConsole = self.iface.mainWindow().findChild(QDockWidget, 'PythonConsole')
+        # if not pythonConsole or not pythonConsole.isVisible():
         #     self.iface.actionShowPythonDialog().trigger()
-        # for x in self.iface.mainWindow().findChildren(QDockWidget):
-        #     object_name = x.objectName()
-        #     if x.objectName() == definitions.CONST_PYTHON_CONSOLE_TAG:
-        #         x.setVisible(True)
+        #     pythonConsole = self.iface.mainWindow().findChild(QDockWidget, 'PythonConsole')
+        #     pythonConsole.setVisible(True)
+        #     self.iface.mainWindow().update()
         cont = 0
         for feature_id in ogr_geometries_by_id:
             ogr_geometry = ogr_geometries_by_id[feature_id]
@@ -402,23 +392,14 @@ class RemoteSensingARDTimeSeriesDownloaderDockWidget(QtWidgets.QDockWidget, FORM
                 except FileExistsError:
                     str_error = f"\nDirectory '{feature_output_path_ndvi}' already exists."
                     self.display_msg_error(str_error)
-                    for x in self.iface.mainWindow().findChildren(QDockWidget):
-                        if x.objectName() == definitions.CONST_PYTHON_CONSOLE_TAG:
-                            x.setVisible(False)
                     return
                 except PermissionError:
                     str_error = f"\nPermission denied: Unable to create '{feature_output_path_ndvi}'."
                     self.display_msg_error(str_error)
-                    for x in self.iface.mainWindow().findChildren(QDockWidget):
-                        if x.objectName() == definitions.CONST_PYTHON_CONSOLE_TAG:
-                            x.setVisible(False)
                     return
                 except Exception as e:
                     str_error = f"\nAn error occurred: {e}"
                     self.display_msg_error(str_error)
-                    for x in self.iface.mainWindow().findChildren(QDockWidget):
-                        if x.objectName() == definitions.CONST_PYTHON_CONSOLE_TAG:
-                            x.setVisible(False)
                     return
             feature_output_path_agronomy = feature_output_path + definitions.CONST_OUTPUT_PATH_SUFFIX_11_8_2
             feature_output_path_agronomy = os.path.normpath(feature_output_path_agronomy)
@@ -428,23 +409,14 @@ class RemoteSensingARDTimeSeriesDownloaderDockWidget(QtWidgets.QDockWidget, FORM
                 except FileExistsError:
                     str_error = f"\nDirectory '{feature_output_path_agronomy}' already exists."
                     self.display_msg_error(str_error)
-                    for x in self.iface.mainWindow().findChildren(QDockWidget):
-                        if x.objectName() == definitions.CONST_PYTHON_CONSOLE_TAG:
-                            x.setVisible(False)
                     return
                 except PermissionError:
                     str_error = f"\nPermission denied: Unable to create '{feature_output_path_agronomy}'."
                     self.display_msg_error(str_error)
-                    for x in self.iface.mainWindow().findChildren(QDockWidget):
-                        if x.objectName() == definitions.CONST_PYTHON_CONSOLE_TAG:
-                            x.setVisible(False)
                     return
                 except Exception as e:
                     str_error = f"\nAn error occurred: {e}"
                     self.display_msg_error(str_error)
-                    for x in self.iface.mainWindow().findChildren(QDockWidget):
-                        if x.objectName() == definitions.CONST_PYTHON_CONSOLE_TAG:
-                            x.setVisible(False)
                     return
             spatial_extent = {}
             spatial_extent["west"] = feature_min_longitude
@@ -452,16 +424,14 @@ class RemoteSensingARDTimeSeriesDownloaderDockWidget(QtWidgets.QDockWidget, FORM
             spatial_extent["east"] = feature_max_longitude
             spatial_extent["north"] = feature_max_latitude
             bands = definitions.openeo_sentinel2_bands
-            s2cube = self.connection.load_collection(definitions.openeo_sentinel2_l2a_tag,
-                                                     spatial_extent,
-                                                     temporal_extent,
-                                                     bands,
+            datacube = self.connection.load_collection(definitions.openeo_sentinel2_l2a_tag,
+                                                       spatial_extent,
+                                                       temporal_extent,
+                                                       bands,
                                                      )
-            blue = s2cube.band("B02")
-            red = s2cube.band("B04")
-            nir = s2cube.band("B08")
-            swir_1 = s2cube.band("B11")
-            datacube_agronomy = s2cube.filter_bands(bands=["B11", "B08", "B02"])
+            red = datacube.band("B04")
+            nir = datacube.band("B08")
+            datacube = datacube.filter_bands(["B11", "B08", "B02"])
             datacube_ndvi = (nir - red) / (nir + red)
             datacube_ndvi_as_json_string = datacube_ndvi.to_json()
             datacube_ndvi_as_dict = json.loads(datacube_ndvi_as_json_string)
@@ -471,7 +441,7 @@ class RemoteSensingARDTimeSeriesDownloaderDockWidget(QtWidgets.QDockWidget, FORM
             job_ndvi.start_and_wait()
             job_ndvi.get_results().download_files(feature_output_path_ndvi)
             print("\n ... Process finished")
-            result_agronomy= datacube_agronomy.save_result("GTiff")
+            result_agronomy= datacube.save_result("GTiff")
             job_agronomy = result_agronomy.create_job()
             print("\nProcessing agronomy combination for feature: {}".format(feature_id))
             job_agronomy.start_and_wait()
@@ -480,9 +450,6 @@ class RemoteSensingARDTimeSeriesDownloaderDockWidget(QtWidgets.QDockWidget, FORM
             cont = cont + 1
             print("\n ... {} elements remain to be processed".format(str(len(ogr_geometries_by_id) - 1)))
             yo = 1
-        for x in self.iface.mainWindow().findChildren(QDockWidget):
-            if x.objectName() == definitions.CONST_PYTHON_CONSOLE_TAG:
-                x.setVisible(False)
         yo = 1
         # datacube = self.connection.load_collection(
         #     "SENTINEL2_L2A",
