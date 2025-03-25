@@ -59,7 +59,7 @@ class RemoteSensingARDTimeSeriesDownloader:
         :type iface: QgsInterface
         """
 
-        # pydevd.settrace('localhost',port=55100,stdoutToServer=True,stderrToServer=True)
+        pydevd.settrace('localhost',port=55100,stdoutToServer=True,stderrToServer=True)
 
         self.path_plugin = pluginPath
         self.current_plugin_name = definitions.CONST_SETTINGS_PLUGIN_NAME

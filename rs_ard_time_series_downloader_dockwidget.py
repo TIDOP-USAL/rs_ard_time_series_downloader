@@ -33,7 +33,8 @@ from qgis.PyQt.QtGui import *
 from qgis.PyQt import QtGui, QtWidgets, uic
 from qgis.PyQt.QtCore import pyqtSignal, QSettings, QTranslator, qVersion, \
     QCoreApplication, QFileInfo, QDir, QObject, QDate, QEvent
-from qgis.PyQt.QtWidgets import QMessageBox, QInputDialog, QLineEdit, QFileDialog, QDockWidget
+from qgis.PyQt.QtWidgets import QMessageBox, QInputDialog, QLineEdit, QFileDialog, \
+    QDockWidget, QTreeView, QHeaderView, QDialog, QVBoxLayout
 from qgis.core import QgsApplication, QgsDataSourceUri,QgsMapLayerProxyModel, QgsRectangle, QgsGeometry, \
     QgsCoordinateReferenceSystem, QgsCoordinateTransform, QgsProject, QgsVectorLayer, QgsMapLayer
 from qgis.core import *
@@ -44,6 +45,7 @@ FORM_CLASS, _ = uic.loadUiType(os.path.join(
 
 from .about_qdialog import AboutQDialog
 from . import definitions
+from jsonmodel import JsonModel
 
 
 def authentication_callback(auth_message: str):
@@ -112,6 +114,9 @@ class RemoteSensingARDTimeSeriesDownloaderDockWidget(QtWidgets.QDockWidget, FORM
         self.loadResultsPushButton.clicked.connect(self.load_results)
         self.loginPushButton.clicked.connect(self.login)
         self.logoutPushButton.clicked.connect(self.logout)
+        self.processPushButton.setEnabled(False)
+        self.loadResultsPushButton.setEnabled(False)
+
 
         pluginsPath = QFileInfo(QgsApplication.qgisUserDatabaseFilePath()).path()
         thisFilePath = os.path.dirname(os.path.realpath(__file__))
@@ -129,6 +134,7 @@ class RemoteSensingARDTimeSeriesDownloaderDockWidget(QtWidgets.QDockWidget, FORM
         self.openEOProviderComboBox.addItem(definitions.CONST_NO_COMBO_SELECT)
         for provider in definitions.openEO_providers:
             self.openEOProviderComboBox.addItem(provider)
+        # self.openEOProviderComboBox.currentIndexChanged.connect(self.select_provider)
         if len(definitions.openEO_providers) == 1:
             self.openEOProviderComboBox.setCurrentIndex(1)
             self.openEOProviderComboBox.setEnabled(False)
@@ -138,6 +144,15 @@ class RemoteSensingARDTimeSeriesDownloaderDockWidget(QtWidgets.QDockWidget, FORM
         # self.roiLayerComboBox.clear()
         # existing_vector_layers = [l for l in QgsProject().instance().mapLayers().values() if isinstance(l, QgsVectorLayer)]
         # self.roiLayerComboBox.setAdditionalLayers(existing_vector_layers)
+
+        self.collectionComboBox.currentIndexChanged.connect(self.select_connection)
+        self.collectionComboBox.setEnabled(False)
+        self.collectionMetadataPushButton.setEnabled(False)
+        self.collectionMetadataPushButton.clicked.connect(self.show_collection_metadata)
+        self.bandsPushButton.clicked.connect(self.select_bands)
+        self.bandsLineEdit.clear()
+        self.bandsPushButton.setEnabled(False)
+        self.indexComboBox.setEnabled(False)
 
         initialDateString = self.settings.value(definitions.CONST_SETTINGS_INITIAL_DATE_TAG)
         if not initialDateString:
@@ -180,12 +195,52 @@ class RemoteSensingARDTimeSeriesDownloaderDockWidget(QtWidgets.QDockWidget, FORM
             # self.outputFileNameLineEdit.setText(outputFileName)
         return
 
+    def load_collections(self):
+        openEO_provider= self.openEOProviderComboBox.currentText()
+        if openEO_provider == definitions.CONST_NO_COMBO_SELECT:
+            str_error = self.tr(u'Select openEO provider')
+            self.display_msg_error(str_error)
+            self.roiMapCanvasRadioButton.setChecked(True)
+            return
+        if not self.connection:
+            str_error = self.tr(u'Login before')
+            self.display_msg_error(str_error)
+            self.roiMapCanvasRadioButton.setChecked(True)
+            return
+        collections = self.connection.list_collections()
+        self.collectionComboBox.clear()
+        if len(collections) == 0:
+            str_error = self.tr(u'There are no collections in openEO Provider:\n{}'.format(openEO_provider))
+            self.display_msg_error(str_error)
+            self.roiMapCanvasRadioButton.setChecked(True)
+            return
+        self.collectionComboBox.addItem(definitions.CONST_NO_COMBO_SELECT)
+        for i in range(len(collections)):
+            collection_id = collections[i]['id']
+            self.collectionComboBox.addItem(collection_id)
+            self.collectionComboBox.setEnabled(False)
+            self.collectionMetadataPushButton.setEnabled(False)
+        self.collectionComboBox.currentIndexChanged.connect(self.select_connection)
+        self.collectionComboBox.setEnabled(True)
+        self.collectionMetadataPushButton.setEnabled(True)
+        return
+
     def load_results(self):
         return
 
     def login(self):
-        self.logged = False
+        # self.logged = False
+        self.processPushButton.setEnabled(False)
+        self.loadResultsPushButton.setEnabled(False)
         self.logoutPushButton.setEnabled(False)
+        self.collectionComboBox.currentIndexChanged.disconnect(self.select_connection)
+        self.collectionComboBox.clear()
+        self.collectionComboBox.setEnabled(False)
+        self.collectionMetadataPushButton.setEnabled(False)
+        self.bandsLineEdit.clear()
+        self.bandsPushButton.setEnabled(False)
+        self.indexComboBox.clear()
+        self.indexComboBox.setEnabled(False)
         authenticated = False
         if self.connection:
             try:
@@ -225,6 +280,9 @@ class RemoteSensingARDTimeSeriesDownloaderDockWidget(QtWidgets.QDockWidget, FORM
             return
         self.logged = True
         self.logoutPushButton.setEnabled(True)
+        self.processPushButton.setEnabled(True)
+        self.loadResultsPushButton.setEnabled(True)
+        self.load_collections()
         return
 
     def logout(self):
@@ -501,6 +559,49 @@ class RemoteSensingARDTimeSeriesDownloaderDockWidget(QtWidgets.QDockWidget, FORM
             self.roiMapCanvasRadioButton.setChecked(True)
             return
 
+    def select_bands(self):
+        current_text = self.bandsLineEdit.text()
+        text, ok = QInputDialog().getText(self, "Input bands codes, separated by ;",
+                                          "Bands:", QLineEdit.Normal,
+                                          current_text)
+        if ok and text:
+            bands = text.split(';')
+            if len(bands) > 0:
+                self.bandsLineEdit.setText(text)
+
+    def select_connection(self):
+        self.bandsPushButton.setEnabled(False)
+        self.bandsLineEdit.clear()
+        self.indexComboBox.clear()
+        self.indexComboBox.setEnabled(False)
+        self.indexComboBox.addItem(definitions.CONST_NO_COMBO_SELECT)
+        openEO_provider = self.openEOProviderComboBox.currentText()
+        if not openEO_provider in definitions.valid_connections_by_openEO_provider:
+            str_error = self.tr(u'Invalid openEO provider')
+            self.display_msg_error(str_error)
+            return
+        connection= self.collectionComboBox.currentText()
+        if connection == definitions.CONST_NO_COMBO_SELECT:
+            str_error = self.tr(u'Select connection')
+            self.display_msg_error(str_error)
+            return
+        if not connection in definitions.valid_connections_by_openEO_provider[openEO_provider]:
+            str_error = self.tr(u'Connection is not valid in this plugin version')
+            self.display_msg_error(str_error)
+            self.collectionComboBox.setCurrentIndex(0)
+            return
+        exists_indexes = False
+        if openEO_provider in definitions.index_by_connection_by_provider:
+            if connection in definitions.index_by_connection_by_provider[openEO_provider]:
+                for index_id in definitions.index_by_connection_by_provider[openEO_provider][connection]:
+                    self.indexComboBox.addItem(index_id)
+                    if not exists_indexes:
+                        exists_indexes = True
+        if exists_indexes:
+            self.indexComboBox.setEnabled(True)
+        self.bandsPushButton.setEnabled(True)
+
+
     def select_output_path(self):
         oldText = self.outputPathLineEdit.text()
         title = definitions.CONST_PROGRAM_TITLE
@@ -517,3 +618,42 @@ class RemoteSensingARDTimeSeriesDownloaderDockWidget(QtWidgets.QDockWidget, FORM
         if self.about_qdialog == None:
             self.about_qdialog = AboutQDialog()
         self.about_qdialog.show()
+
+    def show_collection_metadata(self):
+        openEO_provider= self.openEOProviderComboBox.currentText()
+        if openEO_provider == definitions.CONST_NO_COMBO_SELECT:
+            str_error = self.tr(u'Select openEO provider')
+            self.display_msg_error(str_error)
+            self.roiMapCanvasRadioButton.setChecked(True)
+            return
+        if not self.connection:
+            str_error = self.tr(u'Login before')
+            self.display_msg_error(str_error)
+            self.roiMapCanvasRadioButton.setChecked(True)
+            return
+        collection_id = self.collectionComboBox.currentText()
+        collection_metadata = self.connection.describe_collection(collection_id)
+        json_object = json.dumps(collection_metadata, indent=4)
+        view = QTreeView()
+        model = JsonModel()
+        view.setModel(model)
+        view.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        view.setAlternatingRowColors(True)
+        view.resize(500, 300)
+        model.load(collection_metadata)
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Collection metadata")
+        dialog_layout = QVBoxLayout()
+        dialog_layout.addWidget(view)
+        dialog.setLayout(dialog_layout)
+        dialog.exec_()
+        # view.resize(500, 300)
+        # view.show()
+
+        # msg = self.tr(u'Collection:')
+        # msg += self.tr(u'\n- Id: {}'.format(collection_id))
+        # for metadata in collection_metadata:
+        #     msg += self.tr(u'\n- {}: {}'.format(metadata, collection_metadata[metadata]))
+        # self.display_msg_error(msg)
+
+        return

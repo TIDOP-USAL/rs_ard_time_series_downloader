@@ -33,6 +33,14 @@ CONST_OPENEO_MAPCANVAS_FEATURE_ID = "map_canvas"
 CONST_OPENEO_EXTENT_CRS = "4258"
 openEO_providers = {}
 openEO_providers['Copernicus Data Space Ecosystem'] = 'openeo.dataspace.copernicus.eu'
+valid_connections_by_openEO_provider = {}
+valid_connections_by_openEO_provider["Copernicus Data Space Ecosystem"] = []
+valid_connections_by_openEO_provider["Copernicus Data Space Ecosystem"].append("SENTINEL2_L2A")
+index_by_connection_by_provider = {}
+index_by_connection_by_provider["Copernicus Data Space Ecosystem"] = {}
+index_by_connection_by_provider["Copernicus Data Space Ecosystem"]["SENTINEL2_L2A"] = {}
+index_by_connection_by_provider["Copernicus Data Space Ecosystem"]["SENTINEL2_L2A"]["NDVI"] = ["B04", "B08"]
+
 feature_field_id_candidates = []
 feature_field_id_candidates.append("id")
 feature_field_id_candidates.append("fid")
