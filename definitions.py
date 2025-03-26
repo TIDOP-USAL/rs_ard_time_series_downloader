@@ -40,16 +40,25 @@ index_by_connection_by_provider = {}
 index_by_connection_by_provider["Copernicus Data Space Ecosystem"] = {}
 index_by_connection_by_provider["Copernicus Data Space Ecosystem"]["SENTINEL2_L2A"] = {}
 index_by_connection_by_provider["Copernicus Data Space Ecosystem"]["SENTINEL2_L2A"]["NDVI"] = ["B04", "B08"]
-
+bands_tags_connection_by_provider = {}
+bands_tags_connection_by_provider["Copernicus Data Space Ecosystem"] = {}
+bands_tags_connection_by_provider["Copernicus Data Space Ecosystem"]["SENTINEL2_L2A"] = []
+bands_tags_connection_by_provider["Copernicus Data Space Ecosystem"]["SENTINEL2_L2A"].append("cube:dimensions")
+bands_tags_connection_by_provider["Copernicus Data Space Ecosystem"]["SENTINEL2_L2A"].append("bands")
+bands_tags_connection_by_provider["Copernicus Data Space Ecosystem"]["SENTINEL2_L2A"].append("values")
+collection_info_image_files_base_path = '\\doc'
+collection_info_image_file_by_provider_by_collection = {}
+collection_info_image_file_by_provider_by_collection["Copernicus Data Space Ecosystem"] = {}
+collection_info_image_file_by_provider_by_collection["Copernicus Data Space Ecosystem"]["SENTINEL2_L2A"] = "Sentinel2_Info.png"
 feature_field_id_candidates = []
 feature_field_id_candidates.append("id")
 feature_field_id_candidates.append("fid")
 CONST_OPENEO_CRS_EPSG_STRING = 'EPSG:4326'
 openeo_sentinel2_l2a_tag = "SENTINEL2_L2A"
-openeo_sentinel2_bands=["B02", "B04", "B08", "B11", "SCL"]
+# openeo_sentinel2_bands=["B02", "B04", "B08", "B11", "SCL"]
 CONST_PYTHON_CONSOLE_TAG = 'PythonConsole'
 CONST_OUTPUT_PATH_SUFFIX_NDVI = '_ndvi'
-CONST_OUTPUT_PATH_SUFFIX_11_8_2 = '_11_8_2'
+CONST_OUTPUT_PATH_BANDS = '_bands'
 
 
 

@@ -27,14 +27,19 @@ import webbrowser
 import subprocess
 from osgeo import gdal, osr, ogr
 import json
+from os import listdir
+from os.path import isfile, join
 
 from qgis.PyQt.QtCore import *
 from qgis.PyQt.QtGui import *
 from qgis.PyQt import QtGui, QtWidgets, uic
 from qgis.PyQt.QtCore import pyqtSignal, QSettings, QTranslator, qVersion, \
     QCoreApplication, QFileInfo, QDir, QObject, QDate, QEvent
-from qgis.PyQt.QtWidgets import QMessageBox, QInputDialog, QLineEdit, QFileDialog, \
-    QDockWidget, QTreeView, QHeaderView, QDialog, QVBoxLayout
+from qgis.PyQt.QtWidgets import QMessageBox, QInputDialog, QLineEdit, \
+    QFileDialog, QDockWidget, QTreeView, QHeaderView, QDialog, QVBoxLayout, QLabel
+# from qgis.PyQt.QtGui import QPixmap
+# from qgis.PyQt.QtCore import Qt.IgnoreAspectRatio
+from qgis.PyQt.QtGui import QPixmap
 from qgis.core import QgsApplication, QgsDataSourceUri,QgsMapLayerProxyModel, QgsRectangle, QgsGeometry, \
     QgsCoordinateReferenceSystem, QgsCoordinateTransform, QgsProject, QgsVectorLayer, QgsMapLayer
 from qgis.core import *
@@ -82,12 +87,35 @@ class RemoteSensingARDTimeSeriesDownloaderDockWidget(QtWidgets.QDockWidget, FORM
         self.openeo_imported = False
         self.connection = None
         self.logged = False
+        self.bands_ids_candidates = None
+        self.results_paths = None
         self.setupUi(self)
         self.initialize()
 
     def closeEvent(self, event):
         self.closingPlugin.emit()
         event.accept()
+
+    def collection_info(self):
+        provider_id = self.openEOProviderComboBox.currentText()
+        collection_id = self.collectionComboBox.currentText()
+        if not provider_id in definitions.collection_info_image_file_by_provider_by_collection:
+            return
+        if not collection_id in definitions.collection_info_image_file_by_provider_by_collection[provider_id]:
+            return
+        image_file_path = self.path_plugin + definitions.collection_info_image_files_base_path + "\\"
+        image_file_path += definitions.collection_info_image_file_by_provider_by_collection[provider_id][collection_id]
+        dialog = QDialog()
+        dialog.setWindowTitle("Collection info")
+        pixmap = QPixmap(image_file_path)
+        label = QLabel()
+        label.setPixmap(pixmap)
+        self.resize(int(pixmap.width() / 2), int(pixmap.height() / 2))
+        dialog_layout = QVBoxLayout()
+        dialog_layout.addWidget(label)
+        dialog.setLayout(dialog_layout)
+        dialog.exec_()
+        return
 
     def display_msg_error(self, text):
         msgBox = QMessageBox()
@@ -100,37 +128,28 @@ class RemoteSensingARDTimeSeriesDownloaderDockWidget(QtWidgets.QDockWidget, FORM
 
     def initialize(self):
         self.about_qdialog = None
-        # self.ee_uninitialized = True
         path_file_qsettings = self.path_plugin + '/' + definitions.CONST_SETTINGS_FILE_NAME
         self.settings = QSettings(path_file_qsettings,QSettings.IniFormat)
         qs = QSettings()
         self.about_qdialog = None
         self.aboutPushButton.clicked.connect(self.show_about_dialog)
+        self.collectionInfoPushButton.clicked.connect(self.collection_info)
         self.roiSelectedFeaturesRadioButton.toggled.connect(self.roi_from_selected_features)
         self.roiMapCanvasRadioButton.setChecked(True)
         self.outputPathPushButton.clicked.connect(self.select_output_path)
-        # self.outputFileNamePushButton.clicked.connect(self.selectOutputFileName)
         self.processPushButton.clicked.connect(self.process)
         self.loadResultsPushButton.clicked.connect(self.load_results)
         self.loginPushButton.clicked.connect(self.login)
         self.logoutPushButton.clicked.connect(self.logout)
-        self.processPushButton.setEnabled(False)
-        self.loadResultsPushButton.setEnabled(False)
-
-
         pluginsPath = QFileInfo(QgsApplication.qgisUserDatabaseFilePath()).path()
         thisFilePath = os.path.dirname(os.path.realpath(__file__))
         thisFilePath = os.path.join(pluginsPath, thisFilePath)
-
         self.templatePath = thisFilePath + definitions.CONST_TEMPLATE_PATH
-        # self.qmlDNBRFileName = self.templatePath + definitions.CONST_DNBR_SYMBOLOGY_TEMPLATE
-
         self.path = self.settings.value(definitions.CONST_SETTINGS_LAST_PATH_TAG)
         if not self.path:
             self.path = QDir.currentPath()
             self.settings.setValue(definitions.CONST_SETTINGS_LAST_PATH_TAG,self.path)
             self.settings.sync()
-
         self.openEOProviderComboBox.addItem(definitions.CONST_NO_COMBO_SELECT)
         for provider in definitions.openEO_providers:
             self.openEOProviderComboBox.addItem(provider)
@@ -139,21 +158,10 @@ class RemoteSensingARDTimeSeriesDownloaderDockWidget(QtWidgets.QDockWidget, FORM
             self.openEOProviderComboBox.setCurrentIndex(1)
             self.openEOProviderComboBox.setEnabled(False)
         self.loginPushButton.setEnabled(True)
-        self.logoutPushButton.setEnabled(False)
-        # self.roiLayerComboBox.setFilters(QgsMapLayerProxyModel.VectorLayer)
-        # self.roiLayerComboBox.clear()
-        # existing_vector_layers = [l for l in QgsProject().instance().mapLayers().values() if isinstance(l, QgsVectorLayer)]
-        # self.roiLayerComboBox.setAdditionalLayers(existing_vector_layers)
-
         self.collectionComboBox.currentIndexChanged.connect(self.select_connection)
-        self.collectionComboBox.setEnabled(False)
-        self.collectionMetadataPushButton.setEnabled(False)
         self.collectionMetadataPushButton.clicked.connect(self.show_collection_metadata)
         self.bandsPushButton.clicked.connect(self.select_bands)
-        self.bandsLineEdit.clear()
-        self.bandsPushButton.setEnabled(False)
-        self.indexComboBox.setEnabled(False)
-
+        self.indexComboBox.currentIndexChanged.connect(self.select_index)
         initialDateString = self.settings.value(definitions.CONST_SETTINGS_INITIAL_DATE_TAG)
         if not initialDateString:
             initialDateString = definitions.CONST_INITIAL_DATE_DEFAULT
@@ -189,10 +197,7 @@ class RemoteSensingARDTimeSeriesDownloaderDockWidget(QtWidgets.QDockWidget, FORM
             else:
                 self.settings.setValue(definitions.CONST_SETTINGS_OUTPUT_PATH_TAG,'')
                 self.settings.sync()
-
-        # outputFileName = self.settings.value(definitions.CONST_SETTINGS_OUTPUT_FILE_NAME_TAG)
-        # if outputFileName:
-            # self.outputFileNameLineEdit.setText(outputFileName)
+        self.update_gui()
         return
 
     def load_collections(self):
@@ -200,47 +205,63 @@ class RemoteSensingARDTimeSeriesDownloaderDockWidget(QtWidgets.QDockWidget, FORM
         if openEO_provider == definitions.CONST_NO_COMBO_SELECT:
             str_error = self.tr(u'Select openEO provider')
             self.display_msg_error(str_error)
-            self.roiMapCanvasRadioButton.setChecked(True)
             return
         if not self.connection:
             str_error = self.tr(u'Login before')
             self.display_msg_error(str_error)
-            self.roiMapCanvasRadioButton.setChecked(True)
             return
         collections = self.connection.list_collections()
         self.collectionComboBox.clear()
         if len(collections) == 0:
             str_error = self.tr(u'There are no collections in openEO Provider:\n{}'.format(openEO_provider))
             self.display_msg_error(str_error)
-            self.roiMapCanvasRadioButton.setChecked(True)
             return
+        self.collectionComboBox.currentIndexChanged.disconnect(self.select_connection)
         self.collectionComboBox.addItem(definitions.CONST_NO_COMBO_SELECT)
         for i in range(len(collections)):
             collection_id = collections[i]['id']
             self.collectionComboBox.addItem(collection_id)
-            self.collectionComboBox.setEnabled(False)
-            self.collectionMetadataPushButton.setEnabled(False)
         self.collectionComboBox.currentIndexChanged.connect(self.select_connection)
-        self.collectionComboBox.setEnabled(True)
-        self.collectionMetadataPushButton.setEnabled(True)
         return
 
     def load_results(self):
+        if not self.results_paths:
+            return
+        for i in range(len(self.results_paths)):
+            result_path = self.results_paths[i]
+            if not os.path.exists(result_path):
+                continue
+            files = [f for f in listdir(result_path) if isfile(join(result_path, f))]
+            geotiff_files = {}
+            for file in files:
+                if file.endswith(".tif") or file.endswith(".TIF"):
+                    file_base_name = os.path.splitext(os.path.basename(file))[0]
+                    file_path = result_path + "\\" + file
+                    file_path = os.path.normpath(file_path)
+                    geotiff_files[file_base_name] = file_path
+            if not bool(geotiff_files):
+                continue
+            group_name = os.path.basename(os.path.normpath(result_path))
+            root = QgsProject.instance().layerTreeRoot()
+            layer_group = None
+            for group in root.findGroups():
+                if group.name() == group_name:
+                    group = root.removeChildNode(group_name)
+                    break
+            group = root.addGroup(group_name)
+            for geotiff_file in geotiff_files:
+                file_name = geotiff_files[geotiff_file]
+                raster_layer = QgsRasterLayer(file_name, geotiff_file)
+                QgsProject.instance().addMapLayer(raster_layer, False)
+                group.insertChildNode(1, QgsLayerTreeLayer(raster_layer))
+                # group.insertLayer(0, raster_layer)
+
+
         return
 
     def login(self):
-        # self.logged = False
-        self.processPushButton.setEnabled(False)
-        self.loadResultsPushButton.setEnabled(False)
-        self.logoutPushButton.setEnabled(False)
-        self.collectionComboBox.currentIndexChanged.disconnect(self.select_connection)
-        self.collectionComboBox.clear()
-        self.collectionComboBox.setEnabled(False)
-        self.collectionMetadataPushButton.setEnabled(False)
-        self.bandsLineEdit.clear()
-        self.bandsPushButton.setEnabled(False)
-        self.indexComboBox.clear()
-        self.indexComboBox.setEnabled(False)
+        self.logged = False
+        self.update_gui()
         authenticated = False
         if self.connection:
             try:
@@ -258,18 +279,17 @@ class RemoteSensingARDTimeSeriesDownloaderDockWidget(QtWidgets.QDockWidget, FORM
             self.display_msg_error(str_error)
             return
         backend_url = definitions.openEO_providers[openeo_provider]
-        if not self.openeo_imported:
-            try:
-                import openeo
-                self.openeo_imported = True
-            except ImportError:
-                str_error = self.tr(u'OPENEO is required')
-                str_error += self.tr(u'Open QGIS python console and execute two commands:\n')
-                str_error += (u'import pip\n')
-                str_error += (u'pip.main(["install","openeo"])\n\n')
-                str_error += self.tr(u'You must restart QGIS before use the plugin')
-                self.display_msg_error(str_error)
-                return
+        try:
+            import openeo
+            self.openeo_imported = True
+        except ImportError:
+            str_error = self.tr(u'OPENEO is required')
+            str_error += self.tr(u'Open QGIS python console and execute two commands:\n')
+            str_error += (u'import pip\n')
+            str_error += (u'pip.main(["install","openeo"])\n\n')
+            str_error += self.tr(u'You must restart QGIS before use the plugin')
+            self.display_msg_error(str_error)
+            return
         self.connection = openeo.connect(backend_url)
         try:
             self.connection.authenticate_oidc(display=authentication_callback)#, max_poll_time=120)
@@ -278,11 +298,9 @@ class RemoteSensingARDTimeSeriesDownloaderDockWidget(QtWidgets.QDockWidget, FORM
             self.display_msg_error(str_error)
             self.connection = None
             return
-        self.logged = True
-        self.logoutPushButton.setEnabled(True)
-        self.processPushButton.setEnabled(True)
-        self.loadResultsPushButton.setEnabled(True)
         self.load_collections()
+        self.logged = True
+        self.update_gui()
         return
 
     def logout(self):
@@ -301,15 +319,19 @@ class RemoteSensingARDTimeSeriesDownloaderDockWidget(QtWidgets.QDockWidget, FORM
                         break
         if refresh_tokens_file_path:
             os.remove(refresh_tokens_file_path)
-            self.logoutPushButton.setEnabled(False)
+        self.logged = False
+        self.update_gui()
         return
 
     def process(self):
-        self.login()
-        if not self.logged:
-            str_error = self.tr(u'Login before')
-            self.display_msg_error(str_error)
-            return
+        # self.login()
+        # if not self.logged:
+        #     str_error = self.tr(u'Login before')
+        #     self.display_msg_error(str_error)
+        #     return
+        self.results_paths = None
+        provider_id = self.openEOProviderComboBox.currentText()
+        collection_id = self.collectionComboBox.currentText()
         initialJulianDate = self.initialDateEdit.date().toJulianDay()
         finalJulianDate = self.finalDateEdit.date().toJulianDay()
         if finalJulianDate <= initialJulianDate:
@@ -430,6 +452,21 @@ class RemoteSensingARDTimeSeriesDownloaderDockWidget(QtWidgets.QDockWidget, FORM
         #     pythonConsole = self.iface.mainWindow().findChild(QDockWidget, 'PythonConsole')
         #     pythonConsole.setVisible(True)
         #     self.iface.mainWindow().update()
+        bands = []
+        str_bands = self.bandsLineEdit.text()
+        if str_bands:
+            bands = str_bands.split(';')
+        index = self.indexComboBox.currentText()
+        index_bands = None
+        if provider_id in definitions.index_by_connection_by_provider:
+            if collection_id in definitions.index_by_connection_by_provider[provider_id]:
+                if index in definitions.index_by_connection_by_provider[provider_id][collection_id]:
+                    index_bands = definitions.index_by_connection_by_provider[provider_id][collection_id][index]
+                    for index_band in index_bands:
+                        if not index_band in bands:
+                            bands.append(index_band)
+        # bands = definitions.openeo_sentinel2_bands
+        self.results_paths = []
         cont = 0
         for feature_id in ogr_geometries_by_id:
             ogr_geometry = ogr_geometries_by_id[feature_id]
@@ -442,73 +479,80 @@ class RemoteSensingARDTimeSeriesDownloaderDockWidget(QtWidgets.QDockWidget, FORM
             feature_max_longitude = env[1]
             feature_max_latitude = env[3]
             feature_output_path = outputPath + '/' + feature_id
-            feature_output_path_ndvi = feature_output_path + definitions.CONST_OUTPUT_PATH_SUFFIX_NDVI
-            feature_output_path_ndvi = os.path.normpath(feature_output_path_ndvi)
-            if not os.path.exists(feature_output_path_ndvi):
+            feature_output_path_index = ''
+            if index_bands:
+                feature_output_path_index = feature_output_path + '_' + index
+                feature_output_path_index = os.path.normpath(feature_output_path_index)
+                if not os.path.exists(feature_output_path_index):
+                    try:
+                        os.mkdir(feature_output_path_index)
+                    except FileExistsError:
+                        str_error = f"\nDirectory '{feature_output_path_index}' already exists."
+                        self.display_msg_error(str_error)
+                        return
+                    except PermissionError:
+                        str_error = f"\nPermission denied: Unable to create '{feature_output_path_index}'."
+                        self.display_msg_error(str_error)
+                        return
+                    except Exception as e:
+                        str_error = f"\nAn error occurred: {e}"
+                        self.display_msg_error(str_error)
+                        return
+                self.results_paths.append(feature_output_path_index)
+            feature_output_path_bands = feature_output_path + definitions.CONST_OUTPUT_PATH_BANDS
+            feature_output_path_bands = os.path.normpath(feature_output_path_bands)
+            if not os.path.exists(feature_output_path_bands):
                 try:
-                    os.mkdir(feature_output_path_ndvi)
+                    os.mkdir(feature_output_path_bands)
                 except FileExistsError:
-                    str_error = f"\nDirectory '{feature_output_path_ndvi}' already exists."
+                    str_error = f"\nDirectory '{feature_output_path_bands}' already exists."
                     self.display_msg_error(str_error)
                     return
                 except PermissionError:
-                    str_error = f"\nPermission denied: Unable to create '{feature_output_path_ndvi}'."
+                    str_error = f"\nPermission denied: Unable to create '{feature_output_path_bands}'."
                     self.display_msg_error(str_error)
                     return
                 except Exception as e:
                     str_error = f"\nAn error occurred: {e}"
                     self.display_msg_error(str_error)
                     return
-            feature_output_path_agronomy = feature_output_path + definitions.CONST_OUTPUT_PATH_SUFFIX_11_8_2
-            feature_output_path_agronomy = os.path.normpath(feature_output_path_agronomy)
-            if not os.path.exists(feature_output_path_agronomy):
-                try:
-                    os.mkdir(feature_output_path_agronomy)
-                except FileExistsError:
-                    str_error = f"\nDirectory '{feature_output_path_agronomy}' already exists."
-                    self.display_msg_error(str_error)
-                    return
-                except PermissionError:
-                    str_error = f"\nPermission denied: Unable to create '{feature_output_path_agronomy}'."
-                    self.display_msg_error(str_error)
-                    return
-                except Exception as e:
-                    str_error = f"\nAn error occurred: {e}"
-                    self.display_msg_error(str_error)
-                    return
-            spatial_extent = {}
-            spatial_extent["west"] = feature_min_longitude
-            spatial_extent["south"] = feature_min_latitude
-            spatial_extent["east"] = feature_max_longitude
-            spatial_extent["north"] = feature_max_latitude
-            bands = definitions.openeo_sentinel2_bands
-            datacube = self.connection.load_collection(definitions.openeo_sentinel2_l2a_tag,
-                                                       spatial_extent,
-                                                       temporal_extent,
-                                                       bands,
-                                                     )
-            red = datacube.band("B04")
-            nir = datacube.band("B08")
-            datacube = datacube.filter_bands(["B11", "B08", "B02"])
-            datacube_ndvi = (nir - red) / (nir + red)
-            datacube_ndvi_as_json_string = datacube_ndvi.to_json()
-            datacube_ndvi_as_dict = json.loads(datacube_ndvi_as_json_string)
-            result_ndvi = datacube_ndvi.save_result("GTiff")
-            job_ndvi = result_ndvi.create_job()
-            print("\nProcessing NDVI for feature: {}".format(feature_id))
-            job_ndvi.start_and_wait()
-            job_ndvi.get_results().download_files(feature_output_path_ndvi)
-            print("\n ... Process finished")
-            result_agronomy= datacube.save_result("GTiff")
-            job_agronomy = result_agronomy.create_job()
-            print("\nProcessing agronomy combination for feature: {}".format(feature_id))
-            job_agronomy.start_and_wait()
-            job_agronomy.get_results().download_files(feature_output_path_agronomy)
-            print("\n ... Process finished")
-            cont = cont + 1
-            print("\n ... {} elements remain to be processed".format(str(len(ogr_geometries_by_id) - 1)))
-            yo = 1
-        yo = 1
+            self.results_paths.append(feature_output_path_bands)
+            # spatial_extent = {}
+            # spatial_extent["west"] = feature_min_longitude
+            # spatial_extent["south"] = feature_min_latitude
+            # spatial_extent["east"] = feature_max_longitude
+            # spatial_extent["north"] = feature_max_latitude
+            # datacube = self.connection.load_collection(definitions.openeo_sentinel2_l2a_tag,
+            #                                            spatial_extent,
+            #                                            temporal_extent,
+            #                                            bands,
+            #                                          )
+            # index_first_band_id = index_bands[0]
+            # index_second_band_id = index_bands[1]
+            # index_first_band = datacube.band(index_first_band_id)
+            # index_second_band = datacube.band(index_second_band_id)
+            # # red = datacube.band("B04")
+            # # nir = datacube.band("B08")
+            # # datacube = datacube.filter_bands(["B11", "B08", "B02"])
+            # # datacube_ndvi = (nir - red) / (nir + red)
+            # datacube_index = (index_second_band - index_first_band) / (index_second_band + index_first_band)
+            # datacube_ndvi_as_json_string = datacube_index.to_json()
+            # datacube_ndvi_as_dict = json.loads(datacube_ndvi_as_json_string)
+            # result_ndvi = datacube_index.save_result("GTiff")
+            # job_ndvi = result_ndvi.create_job()
+            # print("\nProcessing index for feature: {}".format(feature_id), flush=True)
+            # job_ndvi.start_and_wait()
+            # job_ndvi.get_results().download_files(feature_output_path_index)
+            # print("\n ... Process finished", flush=True)
+            # result_agronomy= datacube.save_result("GTiff")
+            # job_agronomy = result_agronomy.create_job()
+            # print("\nProcessing bands for feature: {}".format(feature_id), flush=True)
+            # job_agronomy.start_and_wait()
+            # job_agronomy.get_results().download_files(feature_output_path_bands)
+            # print("\n ... Process finished", flush=True)
+            # cont = cont + 1
+            # print("\n ... {} elements remain to be processed".format(str(len(ogr_geometries_by_id) - 1)), flush=True)
+
         # datacube = self.connection.load_collection(
         #     "SENTINEL2_L2A",
         #     spatial_extent={"west": -2.03972707113385754,
@@ -529,7 +573,6 @@ class RemoteSensingARDTimeSeriesDownloaderDockWidget(QtWidgets.QDockWidget, FORM
         # ndvi_composite.download(download_file)
         str_error = self.tr(u'Process finished')
         self.display_msg_error(str_error)
-
         return
 
     def roi_from_selected_features(self):
@@ -561,46 +604,84 @@ class RemoteSensingARDTimeSeriesDownloaderDockWidget(QtWidgets.QDockWidget, FORM
 
     def select_bands(self):
         current_text = self.bandsLineEdit.text()
-        text, ok = QInputDialog().getText(self, "Input bands codes, separated by ;",
-                                          "Bands:", QLineEdit.Normal,
+        text, ok = QInputDialog().getText(self, "Bands identifiers",
+                                          "Bands (separated by ;):", QLineEdit.Normal,
                                           current_text)
         if ok and text:
             bands = text.split(';')
+            for band in bands:
+                if not band in self.bands_ids_candidates:
+                    provider_id = self.openEOProviderComboBox.currentText()
+                    collection_id = self.collectionComboBox.currentText()
+                    str_error = self.tr(u'Band is not included in collection: {}'.format(collection_id))
+                    str_error += self.tr(u'\nin provider: {}'.format(provider_id))
+                    str_error += self.tr(u'\nBand candidates:')
+                    for band_candidate in self.bands_ids_candidates:
+                        str_error += self.tr(u'\nBand id: {}'.format(band_candidate))
+                    self.display_msg_error(str_error)
+                    return
             if len(bands) > 0:
                 self.bandsLineEdit.setText(text)
+        self.update_gui()
 
     def select_connection(self):
-        self.bandsPushButton.setEnabled(False)
         self.bandsLineEdit.clear()
         self.indexComboBox.clear()
-        self.indexComboBox.setEnabled(False)
-        self.indexComboBox.addItem(definitions.CONST_NO_COMBO_SELECT)
+        self.bands_ids_candidates = None
+        self.update_gui()
         openEO_provider = self.openEOProviderComboBox.currentText()
         if not openEO_provider in definitions.valid_connections_by_openEO_provider:
             str_error = self.tr(u'Invalid openEO provider')
             self.display_msg_error(str_error)
             return
-        connection= self.collectionComboBox.currentText()
-        if connection == definitions.CONST_NO_COMBO_SELECT:
+        collection_id= self.collectionComboBox.currentText()
+        if collection_id == definitions.CONST_NO_COMBO_SELECT:
             str_error = self.tr(u'Select connection')
             self.display_msg_error(str_error)
             return
-        if not connection in definitions.valid_connections_by_openEO_provider[openEO_provider]:
+        if not openEO_provider in definitions.valid_connections_by_openEO_provider:
+            str_error = self.tr(u'Provider is not valid in this plugin version')
+            self.display_msg_error(str_error)
+            self.collectionComboBox.setCurrentIndex(0)
+            return
+        if not openEO_provider in definitions.bands_tags_connection_by_provider:
+            str_error = self.tr(u'Provider is not valid in this plugin version')
+            self.display_msg_error(str_error)
+            self.collectionComboBox.setCurrentIndex(0)
+            return
+        if not collection_id in definitions.bands_tags_connection_by_provider[openEO_provider]:
+            str_error = self.tr(u'There are no bands tags definition for provider: {}'.format(openEO_provider))
+            str_error += self.tr(u'\nConnection is not valid in this plugin version')
+            self.display_msg_error(str_error)
+            self.collectionComboBox.setCurrentIndex(0)
+            return
+        collection_metadata = self.connection.describe_collection(collection_id)
+        collection_metadata_iterate = collection_metadata
+        collection_band_values = None
+        for bands_tags in definitions.bands_tags_connection_by_provider[openEO_provider][collection_id]:
+            if not bands_tags in collection_metadata_iterate:
+                str_error = self.tr(u'No tag: {} in bands definition for provider: {} and collection: {}'.
+                                    format(bands_tags, openEO_provider, collection_id))
+                self.display_msg_error(str_error)
+                self.collectionComboBox.setCurrentIndex(0)
+                return
+            collection_metadata_iterate = collection_metadata_iterate[bands_tags]
+        if not collection_id in definitions.valid_connections_by_openEO_provider[openEO_provider]:
             str_error = self.tr(u'Connection is not valid in this plugin version')
             self.display_msg_error(str_error)
             self.collectionComboBox.setCurrentIndex(0)
             return
-        exists_indexes = False
         if openEO_provider in definitions.index_by_connection_by_provider:
-            if connection in definitions.index_by_connection_by_provider[openEO_provider]:
-                for index_id in definitions.index_by_connection_by_provider[openEO_provider][connection]:
+            if collection_id in definitions.index_by_connection_by_provider[openEO_provider]:
+                self.indexComboBox.addItem(definitions.CONST_NO_COMBO_SELECT)
+                for index_id in definitions.index_by_connection_by_provider[openEO_provider][collection_id]:
                     self.indexComboBox.addItem(index_id)
-                    if not exists_indexes:
-                        exists_indexes = True
-        if exists_indexes:
-            self.indexComboBox.setEnabled(True)
-        self.bandsPushButton.setEnabled(True)
+        self.bands_ids_candidates = collection_metadata_iterate
+        self.update_gui()
 
+    def select_index(self):
+        self.update_gui()
+        return
 
     def select_output_path(self):
         oldText = self.outputPathLineEdit.text()
@@ -612,6 +693,7 @@ class RemoteSensingARDTimeSeriesDownloaderDockWidget(QtWidgets.QDockWidget, FORM
             self.settings.setValue(definitions.CONST_SETTINGS_OUTPUT_PATH_TAG, path)
             self.settings.setValue(definitions.CONST_SETTINGS_LAST_PATH_TAG, path)
             self.settings.sync()
+        self.update_gui()
         return
 
     def show_about_dialog(self):
@@ -656,4 +738,76 @@ class RemoteSensingARDTimeSeriesDownloaderDockWidget(QtWidgets.QDockWidget, FORM
         #     msg += self.tr(u'\n- {}: {}'.format(metadata, collection_metadata[metadata]))
         # self.display_msg_error(msg)
 
+        return
+
+    def update_gui(self):
+        if not self.logged:
+            self.collectionComboBox.clear()
+            self.loginPushButton.setEnabled(True)
+            self.logoutPushButton.setEnabled(False)
+            self.collectionComboBox.setEnabled(False)
+            self.collectionMetadataPushButton.setEnabled(False)
+            self.collectionInfoPushButton.setEnabled(False)
+            self.bandsLineEdit.clear()
+            self.bandsPushButton.setEnabled(False)
+            self.indexComboBox.clear()
+            self.indexComboBox.setEnabled(False)
+            self.roiMapCanvasRadioButton.setEnabled(False)
+            self.roiSelectedFeaturesRadioButton.setEnabled(False)
+            self.outputPathPushButton.setEnabled(False)
+            self.initialDateEdit.setEnabled(False)
+            self.finalDateEdit.setEnabled(False)
+            self.processPushButton.setEnabled(False)
+            self.loadResultsPushButton.setEnabled(False)
+            return
+        # provider condition to do, at this moment is one valid
+        self.loginPushButton.setEnabled(False)
+        self.logoutPushButton.setEnabled(True)
+        self.collectionComboBox.setEnabled(True)
+        collection = self.collectionComboBox.currentText()
+        if collection == definitions.CONST_NO_COMBO_SELECT:
+            self.collectionMetadataPushButton.setEnabled(False)
+            self.collectionInfoPushButton.setEnabled(False)
+            self.bandsLineEdit.clear()
+            self.bandsPushButton.setEnabled(False)
+            self.indexComboBox.clear()
+            self.indexComboBox.setEnabled(False)
+            self.roiMapCanvasRadioButton.setEnabled(False)
+            self.roiSelectedFeaturesRadioButton.setEnabled(False)
+            self.outputPathPushButton.setEnabled(False)
+            self.initialDateEdit.setEnabled(False)
+            self.finalDateEdit.setEnabled(False)
+            self.processPushButton.setEnabled(False)
+            self.loadResultsPushButton.setEnabled(False)
+            return
+        self.collectionMetadataPushButton.setEnabled(True)
+        self.collectionInfoPushButton.setEnabled(True)
+        self.bandsPushButton.setEnabled(True)
+        current_bands = self.bandsLineEdit.text()
+        current_index = ""
+        if self.indexComboBox.count() == 0:
+            self.indexComboBox.setEnabled(False)
+        else:
+            self.indexComboBox.setEnabled(True)
+            current_index = self.indexComboBox.currentText()
+        if not current_bands and ( not current_index or current_index == definitions.CONST_NO_COMBO_SELECT):
+            self.roiMapCanvasRadioButton.setEnabled(False)
+            self.roiSelectedFeaturesRadioButton.setEnabled(False)
+            self.outputPathPushButton.setEnabled(False)
+            self.initialDateEdit.setEnabled(False)
+            self.finalDateEdit.setEnabled(False)
+            self.processPushButton.setEnabled(False)
+            self.loadResultsPushButton.setEnabled(False)
+            return
+        self.roiMapCanvasRadioButton.setEnabled(True)
+        self.roiSelectedFeaturesRadioButton.setEnabled(True)
+        self.outputPathPushButton.setEnabled(True)
+        self.initialDateEdit.setEnabled(True)
+        self.finalDateEdit.setEnabled(True)
+        self.processPushButton.setEnabled(False)
+        self.loadResultsPushButton.setEnabled(False)
+        output_path = self.outputPathLineEdit.text()
+        if output_path:
+            self.processPushButton.setEnabled(True)
+            self.loadResultsPushButton.setEnabled(True)
         return
