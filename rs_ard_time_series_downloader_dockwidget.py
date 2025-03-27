@@ -254,9 +254,6 @@ class RemoteSensingARDTimeSeriesDownloaderDockWidget(QtWidgets.QDockWidget, FORM
                 raster_layer = QgsRasterLayer(file_name, geotiff_file)
                 QgsProject.instance().addMapLayer(raster_layer, False)
                 group.insertChildNode(1, QgsLayerTreeLayer(raster_layer))
-                # group.insertLayer(0, raster_layer)
-
-
         return
 
     def login(self):
@@ -324,11 +321,6 @@ class RemoteSensingARDTimeSeriesDownloaderDockWidget(QtWidgets.QDockWidget, FORM
         return
 
     def process(self):
-        # self.login()
-        # if not self.logged:
-        #     str_error = self.tr(u'Login before')
-        #     self.display_msg_error(str_error)
-        #     return
         self.results_paths = None
         provider_id = self.openEOProviderComboBox.currentText()
         collection_id = self.collectionComboBox.currentText()
@@ -517,41 +509,41 @@ class RemoteSensingARDTimeSeriesDownloaderDockWidget(QtWidgets.QDockWidget, FORM
                     self.display_msg_error(str_error)
                     return
             self.results_paths.append(feature_output_path_bands)
-            # spatial_extent = {}
-            # spatial_extent["west"] = feature_min_longitude
-            # spatial_extent["south"] = feature_min_latitude
-            # spatial_extent["east"] = feature_max_longitude
-            # spatial_extent["north"] = feature_max_latitude
-            # datacube = self.connection.load_collection(definitions.openeo_sentinel2_l2a_tag,
-            #                                            spatial_extent,
-            #                                            temporal_extent,
-            #                                            bands,
-            #                                          )
-            # index_first_band_id = index_bands[0]
-            # index_second_band_id = index_bands[1]
-            # index_first_band = datacube.band(index_first_band_id)
-            # index_second_band = datacube.band(index_second_band_id)
-            # # red = datacube.band("B04")
-            # # nir = datacube.band("B08")
-            # # datacube = datacube.filter_bands(["B11", "B08", "B02"])
-            # # datacube_ndvi = (nir - red) / (nir + red)
-            # datacube_index = (index_second_band - index_first_band) / (index_second_band + index_first_band)
-            # datacube_ndvi_as_json_string = datacube_index.to_json()
-            # datacube_ndvi_as_dict = json.loads(datacube_ndvi_as_json_string)
-            # result_ndvi = datacube_index.save_result("GTiff")
-            # job_ndvi = result_ndvi.create_job()
-            # print("\nProcessing index for feature: {}".format(feature_id), flush=True)
-            # job_ndvi.start_and_wait()
-            # job_ndvi.get_results().download_files(feature_output_path_index)
-            # print("\n ... Process finished", flush=True)
-            # result_agronomy= datacube.save_result("GTiff")
-            # job_agronomy = result_agronomy.create_job()
-            # print("\nProcessing bands for feature: {}".format(feature_id), flush=True)
-            # job_agronomy.start_and_wait()
-            # job_agronomy.get_results().download_files(feature_output_path_bands)
-            # print("\n ... Process finished", flush=True)
-            # cont = cont + 1
-            # print("\n ... {} elements remain to be processed".format(str(len(ogr_geometries_by_id) - 1)), flush=True)
+            spatial_extent = {}
+            spatial_extent["west"] = feature_min_longitude
+            spatial_extent["south"] = feature_min_latitude
+            spatial_extent["east"] = feature_max_longitude
+            spatial_extent["north"] = feature_max_latitude
+            datacube = self.connection.load_collection(definitions.openeo_sentinel2_l2a_tag,
+                                                       spatial_extent,
+                                                       temporal_extent,
+                                                       bands,
+                                                     )
+            index_first_band_id = index_bands[0]
+            index_second_band_id = index_bands[1]
+            index_first_band = datacube.band(index_first_band_id)
+            index_second_band = datacube.band(index_second_band_id)
+            # red = datacube.band("B04")
+            # nir = datacube.band("B08")
+            # datacube = datacube.filter_bands(["B11", "B08", "B02"])
+            # datacube_ndvi = (nir - red) / (nir + red)
+            datacube_index = (index_second_band - index_first_band) / (index_second_band + index_first_band)
+            datacube_ndvi_as_json_string = datacube_index.to_json()
+            datacube_ndvi_as_dict = json.loads(datacube_ndvi_as_json_string)
+            result_ndvi = datacube_index.save_result("GTiff")
+            job_ndvi = result_ndvi.create_job()
+            print("\nProcessing index for feature: {}".format(feature_id), flush=True)
+            job_ndvi.start_and_wait()
+            job_ndvi.get_results().download_files(feature_output_path_index)
+            print("\n ... Process finished", flush=True)
+            result_agronomy= datacube.save_result("GTiff")
+            job_agronomy = result_agronomy.create_job()
+            print("\nProcessing bands for feature: {}".format(feature_id), flush=True)
+            job_agronomy.start_and_wait()
+            job_agronomy.get_results().download_files(feature_output_path_bands)
+            print("\n ... Process finished", flush=True)
+            cont = cont + 1
+            print("\n ... {} elements remain to be processed".format(str(len(ogr_geometries_by_id) - cont)), flush=True)
 
         # datacube = self.connection.load_collection(
         #     "SENTINEL2_L2A",
