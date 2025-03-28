@@ -77,8 +77,7 @@ class GdalErrorHandler(object):
 def process(input_path,
             output_shp,
             common_field_name,
-            prefix_fields_to_join,
-            minimum_pixel_count):
+            prefix_fields_to_join):
     str_error = None
     if not exists(input_path):
         str_error = ("Error:\nInput path does not exists:\n{}".format(input_path))
@@ -99,7 +98,9 @@ def process(input_path,
     driver = ogr.GetDriverByName('ESRI Shapefile')
     out_vec_ds = None
     out_layer = None
+    print('Adding fields from input shapefiles:')
     for input_shp in shp_files:
+        print('Processing file: {}'.format(input_shp))
         if cont == 0:
             str_error = copy_shapefile(input_shp, output_shp)
             if str_error:
@@ -153,29 +154,57 @@ def process(input_path,
             str_error += "\nNot common field name: {} in file:\n{}".format(common_field_name, input_shp)
             return str_error
         for feature in in_layer:
-            id = feature.GetFieldAsDouble(common_field_name)
+            id = feature[common_field_name]
             for out_feature in out_layer:
-                out_id = out_feature.GetFieldAsDouble(common_field_name)
+                out_id = out_feature[common_field_name]
                 if out_id == id:
                     for i in range(in_layer_definition.GetFieldCount()):
                         field_name = in_layer_definition.GetFieldDefn(i).GetName()
                         if field_name.startswith(prefix_fields_to_join):
-                            out_layer.CreateField(in_layer_definition.GetFieldDefn(i))#ogr.OFTReal))
-                            value = None
-                            if in_layer_definition.GetFieldDefn(i).GetType() == ogr.OFTInteger:
-                                value = feature.GetFieldAsInteger(i)
-                            elif in_layer_definition.GetFieldDefn(i).GetType() == ogr.OFTReal:
-                                value = feature.GetFieldAsDouble(i)
-                            elif in_layer_definition.GetFieldDefn(i).GetType() == ogr.OFTString:
-                                value = feature.GetFieldAsString(i)
-                            else:
-                                value = feature.GetFieldAsString(i)
+                            field_type = in_layer_definition.GetFieldDefn(i).GetType()
+                            # new_field = ogr.FieldDefn(field_name, ogr.OFTReal)
+                            new_field = ogr.FieldDefn(field_name, field_type)
+                            out_layer.CreateField(new_field)
+                    # out_layer.SetFeature(out_feature)
+            out_layer.ResetReading()
+        in_vec_ds = None
+        cont = cont + 1
+    out_vec_ds = None
+    out_layer = None
+    try:
+        out_vec_ds = driver.Open(output_shp, 1)  # 0 means read-only. 1 means writeable.
+    except ValueError:
+        str_error = "Function process"
+        str_error += "\nError opening dataset file:\n{}".format(output_shp)
+        return str_error
+    out_layer = out_vec_ds.GetLayer()
+    print('Writing fields from input shapefiles:')
+    for input_shp in shp_files:
+        print('Processing file: {}'.format(input_shp))
+        in_vec_ds = None
+        try:
+            in_vec_ds = driver.Open(input_shp, 0)  # 0 means read-only. 1 means writeable.
+        except ValueError:
+            str_error = "Function process"
+            str_error += "\nError opening dataset file:\n{}".format(input_shp)
+            return str_error
+        in_layer = in_vec_ds.GetLayer()
+        in_layer_definition = in_layer.GetLayerDefn()
+        for feature in in_layer:
+            id = feature[common_field_name]
+            for out_feature in out_layer:
+                out_id = out_feature[common_field_name]
+                if out_id == id:
+                    for i in range(in_layer_definition.GetFieldCount()):
+                        field_name = in_layer_definition.GetFieldDefn(i).GetName()
+                        if field_name.startswith(prefix_fields_to_join):
+                            value = feature[field_name]
                             out_feature.SetField(field_name, value)
                     out_layer.SetFeature(out_feature)
             out_layer.ResetReading()
+        in_vec_ds = None
         cont = cont + 1
     return str_error
-
 
 def main():
     parser = argparse.ArgumentParser()
@@ -183,7 +212,6 @@ def main():
     parser.add_argument("--output_shapefile", help="Output shapefile", type=str)
     parser.add_argument("--common_field_name", help="Common field name", type=str)
     parser.add_argument("--prefix_fields_to_join", help="Prefix fields names to join", type=str)
-    parser.add_argument("--minimum_pixel_count", type=int, help="Minimmum pixel count")
     # parser.add_argument("--output_path", type=str,
     #                     help="Output path or empty for multispectral orthomosaic path")
     args = parser.parse_args()
@@ -203,15 +231,10 @@ def main():
         parser.print_help()
         return
     prefix_fields_to_join = args.prefix_fields_to_join
-    if not args.minimum_pixel_count:
-        parser.print_help()
-        return
-    minimum_pixel_count = args.minimum_pixel_count
     str_error = process(input_path,
                         output_shapefile,
                         common_field_name,
-                        prefix_fields_to_join,
-                        minimum_pixel_count)
+                        prefix_fields_to_join)
     if str_error:
         print("Error:\n{}".format(str_error))
         return
