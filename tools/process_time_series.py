@@ -170,7 +170,6 @@ def process(input_path,
                                 value = feature.GetFieldAsString(i)
                             else:
                                 value = feature.GetFieldAsString(i)
-                            value = out_feature[field_name]
                             out_feature.SetField(field_name, value)
                     out_layer.SetFeature(out_feature)
             out_layer.ResetReading()
