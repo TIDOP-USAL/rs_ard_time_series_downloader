@@ -3,6 +3,7 @@
 
 # import optparse
 import argparse
+import matplotlib.pyplot as plt
 import numpy as np
 from osgeo import gdal, osr, ogr
 import os
@@ -18,6 +19,12 @@ import re
 import math
 from pathlib import Path
 
+CONST_VALUES_STRING_SEPARATOR = '_'
+CONST_DATE_PREFIX = '20'
+CONST_CSV_DATE_HEADER = 'date'
+CONST_CSV_COUNT_HEADER = 'pixels_count'
+CONST_CSV_NDVI_MEAN_HEADER = 'ndvi_mean'
+CONST_CSV_NDVI_STD_HEADER = 'ndvi_std'
 
 def delete_shapefile(shapefile):
     str_error = ''
@@ -73,9 +80,21 @@ class GdalErrorHandler(object):
         self.err_no = err_no
         self.err_msg = err_msg
 
+def julian_date(day, month, year):
+    if month <= 2:  # january & february
+        year = year - 1.0
+        month = month + 12.0
+    jd = floor(365.25 * (year + 4716.0)) + floor(30.6001 * (month + 1.0)) + 2.0
+    jd = jd - floor(year / 100.0) + floor(floor(year / 100.0) / 4.0)
+    jd = jd + day - 1524.5
+    # jd = jd + day - 1524.5 + (utc_time)/24.
+    mjd = jd - 2400000.5
+    return jd, mjd
+
 
 def process(input_path,
             output_shp,
+            output_csv,
             common_field_name,
             prefix_fields_to_join):
     str_error = None
@@ -178,6 +197,7 @@ def process(input_path,
         str_error += "\nError opening dataset file:\n{}".format(output_shp)
         return str_error
     out_layer = out_vec_ds.GetLayer()
+    values_by_date = {}
     print('Writing fields from input shapefiles:')
     for input_shp in shp_files:
         print('Processing file: {}'.format(input_shp))
@@ -199,17 +219,77 @@ def process(input_path,
                         field_name = in_layer_definition.GetFieldDefn(i).GetName()
                         if field_name.startswith(prefix_fields_to_join):
                             value = feature[field_name]
+                            str_value = '0.000'
+                            if value:
+                                str_value = "{:.3f}".format(value)
                             out_feature.SetField(field_name, value)
+                            field_name_strings = field_name.split(CONST_VALUES_STRING_SEPARATOR)
+                            str_date = CONST_DATE_PREFIX + field_name_strings[0]
+                            str_value_name = field_name_strings[1]
+                            if str_value_name.startswith('c'):
+                                str_value_name = CONST_CSV_COUNT_HEADER
+                            elif str_value_name.startswith('m'):
+                                str_value_name = CONST_CSV_NDVI_MEAN_HEADER
+                            elif str_value_name.startswith('s'):
+                                str_value_name = CONST_CSV_NDVI_STD_HEADER
+                            if not str_date in values_by_date:
+                                values_by_date[str_date] = {}
+                            values_by_date[str_date][str_value_name] = str_value
                     out_layer.SetFeature(out_feature)
             out_layer.ResetReading()
         in_vec_ds = None
         cont = cont + 1
+    if exists(output_csv):
+        os.remove(output_csv)
+        if exists(output_csv):
+            str_error = ("Error removing existing output CSV:\n{}".format(output_csv))
+            return str_error
+    output_csv_base_path = os.path.dirname(output_shp)
+    output_csv_base_name = os.path.splitext(os.path.basename(output_shp))[0]
+    output_graph = output_csv_base_path + '\\' + output_csv_base_name + '.png'
+    if exists(output_graph):
+        os.remove(output_graph)
+        if exists(output_graph):
+            str_error = ("Error removing existing output graph file:\n{}".format(output_graph))
+            return str_error
+    file_csv = None
+    try:
+        file_csv = open(output_csv, "w")
+    except IOError:
+        str_error = ("Error opening output CSV:\n{}".format(output_csv))
+        return str_error
+    x = []
+    y = []
+    file_csv.write('%s,%s,%s,%s\n'%(CONST_CSV_DATE_HEADER, CONST_CSV_COUNT_HEADER, CONST_CSV_NDVI_MEAN_HEADER, CONST_CSV_NDVI_STD_HEADER))
+    for str_date in values_by_date:
+        # year = int(str_date[:4])
+        # month = int(str_date[4:2])
+        # day = int(str_date[6:2])
+        # jd = julian_date(day, month, year)
+        # jd_year = julian_date(day, month, year)
+        str_count = str(int(float(values_by_date[str_date][CONST_CSV_COUNT_HEADER])))
+        str_mean = values_by_date[str_date][CONST_CSV_NDVI_MEAN_HEADER]
+        str_std = values_by_date[str_date][CONST_CSV_NDVI_STD_HEADER]
+        file_csv.write('%s,%s,%s,%s\n'%(str_date, str_count, str_mean, str_std))
+        x.append(str_date)
+        y.append(float(str_mean))
+    file_csv.close()
+    plt.plot(x, y, color='g', linestyle='dashed', marker='o', label="NDVI time series")
+    plt.xticks(rotation=90)
+    plt.xlabel('Dates')
+    plt.ylabel('NDVI')
+    plt.title('NDVI time series', fontsize=10)
+    plt.grid()
+    plt.legend()
+    plt.savefig(output_graph, bbox_inches='tight')
+    # plt.show()
     return str_error
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--input_path", help="Input path", type=str)
     parser.add_argument("--output_shapefile", help="Output shapefile", type=str)
+    parser.add_argument("--output_csv", help="Output CSV", type=str)
     parser.add_argument("--common_field_name", help="Common field name", type=str)
     parser.add_argument("--prefix_fields_to_join", help="Prefix fields names to join", type=str)
     # parser.add_argument("--output_path", type=str,
@@ -223,6 +303,10 @@ def main():
         parser.print_help()
         return
     output_shapefile = args.output_shapefile
+    if not args.output_csv:
+        parser.print_help()
+        return
+    output_csv = args.output_csv
     if not args.common_field_name:
         parser.print_help()
         return
@@ -233,6 +317,7 @@ def main():
     prefix_fields_to_join = args.prefix_fields_to_join
     str_error = process(input_path,
                         output_shapefile,
+                        output_csv,
                         common_field_name,
                         prefix_fields_to_join)
     if str_error:

@@ -438,6 +438,16 @@ class RemoteSensingARDTimeSeriesDownloaderDockWidget(QtWidgets.QDockWidget, FORM
             return
         target_crs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
         crs_operation = osr.CoordinateTransformation(source_crs, target_crs)
+        equal_ara_crs = osr.SpatialReference()
+        try:
+            # map_canvas_crs.ImportFromEPSG(map_canvas_crs_epsg_code)
+            equal_ara_crs.SetFromUserInput(definitions.CONST_EQUAL_AREA_CRS_EPSG_STRING)
+        except Exception as e:
+            str_error = ('GDAL Error: ' + gdal.GetLastErrorMsg())
+            self.display_msg_error(str_error)
+            return
+        equal_ara_crs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+        equal_area_crs_operation = osr.CoordinateTransformation(target_crs, equal_ara_crs)
         # pythonConsole = self.iface.mainWindow().findChild(QDockWidget, 'PythonConsole')
         # if not pythonConsole or not pythonConsole.isVisible():
         #     self.iface.actionShowPythonDialog().trigger()
@@ -470,6 +480,18 @@ class RemoteSensingARDTimeSeriesDownloaderDockWidget(QtWidgets.QDockWidget, FORM
             feature_min_latitude = env[2]
             feature_max_longitude = env[1]
             feature_max_latitude = env[3]
+            try:
+                ogr_geometry.Transform(equal_area_crs_operation)
+            except Exception as e:
+                str_error = ('GDAL Error: ' + gdal.GetLastErrorMsg())
+                self.display_msg_error(str_error)
+                return
+            area = ogr_geometry.GetArea()
+            if area > definitions.CONST_MAXIMUM_AREA_FOR_POLYGON:
+                str_maximum_area_km2 = "{:.2f}".format(definitions.CONST_MAXIMUM_AREA_FOR_POLYGON / (1000. ** 2.))
+                str_error = f"\nArea of feature: {feature_id} is greather than maximum: {str_maximum_area_km2} Km2."
+                self.display_msg_error(str_error)
+                return
             feature_output_path = outputPath + '/' + feature_id
             feature_output_path_index = ''
             if index_bands:
