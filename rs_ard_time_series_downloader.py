@@ -37,8 +37,8 @@ import os.path
 import sys
 # sys.path.append("C:\Program Files\JetBrains\PyCharm 2018.3.3\debug-eggs\pycharm-debug.egg") # dhl
 # sys.path.append("C:\Program Files\JetBrains\PyCharm 2020.3\debug-eggs\pydevd-pycharm.egg") # dhl
-sys.path.append("C:\Program Files\JetBrains\PyCharm 2022.2.3\debug-eggs\pydevd-pycharm.egg") # dhl
-import pydevd
+# sys.path.append("C:\Program Files\JetBrains\PyCharm 2022.2.3\debug-eggs\pydevd-pycharm.egg") # dhl
+# import pydevd
 
 pluginsPath = QFileInfo(QgsApplication.qgisUserDatabaseFilePath()).path()
 pluginPath = os.path.dirname(os.path.realpath(__file__))
