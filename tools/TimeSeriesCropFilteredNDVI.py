@@ -1,43 +1,23 @@
 # authors:
 # David Hernandez Lopez, david.hernandez@uclm.es
 
-# import optparse
+# Docs: https://www.qgistutorials.com/es/docs/running_qgis_jobs.html
 import argparse
-import matplotlib.pyplot as plt
-import numpy as np
 from osgeo import gdal, osr, ogr
 import os, sys
 import json
-from urllib.parse import unquote
 import shutil
 from os.path import exists
-import datetime
-import glob
-from math import floor, ceil, sqrt, isnan, modf, trunc
-import csv
-import re
-import math
-from pathlib import Path
 
 from qgis.core import *
-
 qgs = QgsApplication([], False)
-qgs.setPrefixPath("C:\\Program Files\\QGIS 3.34.11\\apps\\qgis-ltr", True)
 qgs.initQgis()
-sys.path.append('C:\\Program Files\\QGIS 3.34.11\\apps\\qgis-ltr\\python\\plugins')
-sys.path.append("C:\\Program Files\\QGIS 3.34.11\\apps\\Python312\\lib\\site-packages")
-# import processing *after* initializing the application
+qgis_prefix_path = os.environ["QGIS_PREFIX_PATH"]
+qgis_python_plugins_path = os.path.normpath(qgis_prefix_path + "\\python\\plugins")
+sys.path.append(qgis_python_plugins_path)
 import processing
 from processing.core.Processing import Processing
-
 Processing.initialize()
-
-# from qgis.core import QgsProcessing, QgsProcessingContext
-# from qgis.core import QgsProcessingAlgorithm
-# from qgis.core import QgsProcessingMultiStepFeedback
-# from qgis import processing
-# from qgis.analysis import QgsNativeAlgorithms
-# from processing.core.Processing import Processing
 
 CONST_PARAMETERS_TAG = 'PARAMETERS'
 CONST_OUTPUTS_TAG = 'OUTPUTS'
@@ -114,6 +94,7 @@ def process(input_json):
         str_error += ("\nError:\nContent is not a list")
         return str_error
     for i in range(len(json_content)):
+        print('Processing {}/{}'.format(str(i+1), str(len(json_content))))
         parameters = json_content[i][CONST_PARAMETERS_TAG]
         if not isinstance(parameters, dict):
             str_error = ("\nInput JSON:\n{}".format(input_json))
@@ -169,9 +150,6 @@ def process(input_json):
         output_shapefile = outputs[CONST_OUTPUT_SHAPEFILE_TAG]
         output_shapefile = output_shapefile.replace("'", "")
 
-        # feedback = QgsProcessingMultiStepFeedback(5, model_feedback)
-        # feedback = QgsProcessingMultiStepFeedback(5, None)
-        # context = QgsProcessingContext
         results = {}
         outputs = {}
         ctx = QgsProcessingContext()
@@ -195,7 +173,6 @@ def process(input_json):
             'CRS': None,
             'EXPRESSION': 'IF ("A@3"=4 OR "A@3"=5, "B@1" , 0/0)',
             'EXTENT': None,
-            # 'LAYERS': [parameters['bands'],parameters['ndvi']],
             'LAYERS': [bands,ndvi],
             'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
         }
@@ -221,7 +198,7 @@ def process(input_json):
                                                 feedback=feedback,
                                                 is_child_algorithm=True)
 
-        # Estadisticas de zona
+        # zonal statistics
         alg_params = {
             'INPUT': outputs['PlotsBuffer']['OUTPUT'],
             'INPUT_RASTER': outputs['NdviVegetation']['OUTPUT'],
@@ -234,18 +211,6 @@ def process(input_json):
                                                        feedback=feedback,
                                                        is_child_algorithm=True)
         results['Output_shapefile'] = outputs['EstadisticasDeZona']['OUTPUT']
-
-        # # Cambiar nombre de capa
-        # alg_params = {
-        #     'INPUT': QgsExpression(' @Estadisticas_de_zona_OUTPUT ').evaluate(),
-        #     'NAME': QgsExpression("replace(left(right(layer_property(@ndvi, 'name'),11),8),'-','')").evaluate()
-        # }
-        # outputs['CambiarNombreDeCapa'] = processing.run('native:renamelayer',
-        #                                                 alg_params, context=ctx,
-        #                                                 feedback=feedback,
-        #                                                 is_child_algorithm=True)
-
-        yo = 1
     return str_error
 
 def main():

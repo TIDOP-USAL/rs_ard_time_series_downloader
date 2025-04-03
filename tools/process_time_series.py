@@ -19,6 +19,8 @@ import re
 import math
 from pathlib import Path
 
+CONST_FIELD_IN_SHAPEFILE_BASENAME_STRING_SEPARATOR = '_'
+CONST_FIELD_IN_SHAPEFILE_DATE_POSITION = 2
 CONST_VALUES_STRING_SEPARATOR = '_'
 CONST_COMMON_FIELDS_STRING_SEPARATOR = ';'
 CONST_DATE_PREFIX = '20'
@@ -26,6 +28,9 @@ CONST_CSV_DATE_HEADER = 'date'
 CONST_CSV_COUNT_HEADER = 'pixels_count'
 CONST_CSV_NDVI_MEAN_HEADER = 'ndvi_mean'
 CONST_CSV_NDVI_STD_HEADER = 'ndvi_std'
+CONST_SHP_COUNT_HEADER = '_count'
+CONST_SHP_MEAN_HEADER = '_mean'
+CONST_SHP_STD_HEADER = '_stdev'
 CONST_CROP_TYPE = 'crop'
 
 def delete_shapefile(shapefile):
@@ -122,49 +127,21 @@ def process(input_path,
     if len(shp_files) == 0:
         str_error = ("Error:\nThere are no shapefiles files in input path:\n{}".format(input_path))
         return str_error
-    output_shp = output_path + "\\" + output_name + ".shp"
-    output_shp = os.path.normpath(output_shp)
     cont = 0
     driver = ogr.GetDriverByName('ESRI Shapefile')
-    out_vec_ds = None
-    out_layer = None
-    out_feature_by_id = {}
-    output_fields_names = []
     values_by_id_by_date_by_type = {}
     fields_values_by_id_by_field_name = {}
     print('Adding fields from input shapefiles:')
     for input_shp in shp_files:
         print('Processing file: {}'.format(input_shp))
-        if cont == 0:
-            str_error = copy_shapefile(input_shp, output_shp)
-            if str_error:
-                print("Error:\n{}".format(str_error))
-                return
-            try:
-                out_vec_ds = driver.Open(output_shp, 1)  # 0 means read-only. 1 means writeable.
-            except ValueError:
-                str_error = "Function process"
-                str_error += "\nError opening dataset file:\n{}".format(output_shp)
-                return str_error
-            out_layer = out_vec_ds.GetLayer()
-            out_crs = out_layer.GetSpatialRef()
-            out_crs_wkt = out_crs.ExportToWkt()
-            out_geometry_type = out_layer.GetGeomType()
-            if out_geometry_type != ogr.wkbPolygon \
-                    and out_geometry_type != ogr.wkbMultiPolygon \
-                    and out_geometry_type != ogr.wkbPolygonM and out_geometry_type != ogr.wkbPolygonZM:
-                str_error = "Function process"
-                str_error += "\nNot Polygon geometry type in file:\n{}".format(output_shp)
-                return str_error
-            out_layer_definition = out_layer.GetLayerDefn()
-            output_field_id_index = out_layer_definition.GetFieldIndex(field_id)
-            if not output_field_id_index:
-                str_error = "Function process"
-                str_error += "\nNot common field name: {} in file:\n{}".format(field_id, output_shp)
-                return str_error
-            out_feature = out_layer.GetNextFeature()
-            out_feature_id = out_feature[field_id]
-            out_feature_by_id[out_feature_id] = out_feature
+        input_shp_basename = os.path.splitext(os.path.basename(input_shp))[0]
+        input_shp_basename_values = input_shp_basename.split(CONST_FIELD_IN_SHAPEFILE_BASENAME_STRING_SEPARATOR)
+        if len(input_shp_basename_values) < (CONST_FIELD_IN_SHAPEFILE_DATE_POSITION-1):
+            str_error = "Function process"
+            str_error += "\nError in dataset file:\n{}".format(input_shp)
+            str_error += "\nthere are no enough fields separated by {}".format(CONST_FIELD_IN_SHAPEFILE_BASENAME_STRING_SEPARATOR)
+            return str_error
+        str_date = '20' + input_shp_basename_values[CONST_FIELD_IN_SHAPEFILE_DATE_POSITION-1]
         in_vec_ds = None
         try:
             in_vec_ds = driver.Open(input_shp, 0)  # 0 means read-only. 1 means writeable.
@@ -191,38 +168,27 @@ def process(input_path,
         for feature in in_layer:
             id = feature[field_id]
             id_str = str(id)
-            if not id in out_feature_by_id:
-                out_layer.CreateFeature(feature)
-                out_feature_by_id[id] = feature
-            else:
-                out_feature = out_feature_by_id[id]
             for i in range(in_layer_definition.GetFieldCount()):
                 field_name = in_layer_definition.GetFieldDefn(i).GetName()
-                if cont == 0:
-                    output_fields_names.append(field_name)
                 if field_name.lower() not in common_fields_values:
                     if not id in values_by_id_by_date_by_type:
                         values_by_id_by_date_by_type[id] = {}
                     if not id in fields_values_by_id_by_field_name:
                         fields_values_by_id_by_field_name[id] = {}
-                    field_name_strings = field_name.split(CONST_VALUES_STRING_SEPARATOR)
-                    str_date = CONST_DATE_PREFIX + field_name_strings[0]
                     value = feature[field_name]
-                    field_name_strings = field_name.split(CONST_VALUES_STRING_SEPARATOR)
-                    str_date = CONST_DATE_PREFIX + field_name_strings[0]
-                    str_value_name = field_name_strings[1]
+                    # str_value_name = field_name.replace('_', '')
                     str_value = None
-                    if str_value_name.startswith('c'):
+                    if field_name == CONST_SHP_COUNT_HEADER:
                         str_value_name = CONST_CSV_COUNT_HEADER
                         str_value = '0'
                         if value:
                             str_value = "{:.0f}".format(value)
-                    elif str_value_name.startswith('m'):
+                    elif field_name == CONST_SHP_MEAN_HEADER:
                         str_value_name = CONST_CSV_NDVI_MEAN_HEADER
                         str_value = '0.000'
                         if value:
                             str_value = "{:.3f}".format(value)
-                    elif str_value_name.startswith('s'):
+                    elif field_name == CONST_SHP_STD_HEADER:
                         str_value_name = CONST_CSV_NDVI_STD_HEADER
                         str_value = '0.000'
                         if value:
@@ -232,64 +198,18 @@ def process(input_path,
                     if not str_date in values_by_id_by_date_by_type[id]:
                         values_by_id_by_date_by_type[id][str_date] = {}
                     values_by_id_by_date_by_type[id][str_date][str_value_name] = str_value
-                    fields_values_by_id_by_field_name[id][field_name] = str_value
-                    if not field_name in output_fields_names:
-                        field_type = in_layer_definition.GetFieldDefn(i).GetType()
-                        # new_field = ogr.FieldDefn(field_name, ogr.OFTReal)
-                        new_field = ogr.FieldDefn(field_name, field_type)
-                        out_layer.CreateField(new_field)
-                        output_fields_names.append(field_name)
-                    # out_layer_definition = out_layer.GetLayerDefn()
-                    # exists_field = False
-                    # for j in range(out_layer_definition.GetFieldCount()):
-                    #     output_field_name = out_layer_definition.GetFieldDefn(i).GetName()
-                    #     if field_name == output_field_name:
-                    #         exists_field = True
-                    #         break
-                    # if not exists_field:
-                    #     field_type = in_layer_definition.GetFieldDefn(i).GetType()
-                    #     # new_field = ogr.FieldDefn(field_name, ogr.OFTReal)
-                    #     new_field = ogr.FieldDefn(field_name, field_type)
-                    #     out_layer.CreateField(new_field)
         in_vec_ds = None
         cont = cont + 1
-    out_vec_ds = None
-    # out_layer = None
-    print('Writing shapefile results ...')
-    try:
-        out_vec_ds = driver.Open(output_shp, 1)  # 0 means read-only. 1 means writeable.
-    except ValueError:
-        str_error = "Function process"
-        str_error += "\nError opening dataset file:\n{}".format(output_shp)
-        return str_error
-    out_layer = out_vec_ds.GetLayer()
-    for id in fields_values_by_id_by_field_name:
-        feature_to_write = None
-        out_layer.ResetReading()
-        for feature in out_layer:
-            feature_id = feature[field_id]
-            if feature_id == id:
-                feature_to_write = feature
-                break
-        if not feature_to_write: #never
-            continue
-        for field_name in fields_values_by_id_by_field_name[id]:
-            str_value = fields_values_by_id_by_field_name[id][field_name]
-            # value = float(fields_values_by_id_by_field_name[id][field_name])
-            feature_to_write.SetField(field_name, str_value)
-        out_layer.SetFeature(feature_to_write)
-    out_vec_ds = None
-    # out_layer = None
     print('Writing CSV results ...')
     for id in values_by_id_by_date_by_type:
         str_id = str(id)
-        output_csv = os.path.dirname(output_shp) + '\\' + str_id + '.csv'
+        output_csv = os.path.normpath(output_path + '\\' + output_name + '_' + str_id + '.csv')
         if exists(output_csv):
             os.remove(output_csv)
             if exists(output_csv):
                 str_error = ("Error removing existing output CSV:\n{}".format(output_csv))
                 return str_error
-        output_graph = os.path.dirname(output_shp) + '\\' + str_id + '.png'
+        output_graph =  os.path.normpath(output_path + '\\' + output_name + '_'  + str_id + '.png')
         if exists(output_graph):
             os.remove(output_graph)
             if exists(output_graph):
@@ -321,92 +241,6 @@ def process(input_path,
         plt.legend()
         plt.savefig(output_graph, bbox_inches='tight')
         plt.close()
-
-    # values_by_date = {}
-    # for input_shp in shp_files:
-    #     print('Processing file: {}'.format(input_shp))
-    #     in_vec_ds = None
-    #     try:
-    #         in_vec_ds = driver.Open(input_shp, 0)  # 0 means read-only. 1 means writeable.
-    #     except ValueError:
-    #         str_error = "Function process"
-    #         str_error += "\nError opening dataset file:\n{}".format(input_shp)
-    #         return str_error
-    #     in_layer = in_vec_ds.GetLayer()
-    #     in_layer_definition = in_layer.GetLayerDefn()
-    #     for feature in in_layer:
-    #         id = feature[common_field_name]
-    #         for out_feature in out_layer:
-    #             out_id = out_feature[common_field_name]
-    #             if out_id == id:
-    #                 for i in range(in_layer_definition.GetFieldCount()):
-    #                     field_name = in_layer_definition.GetFieldDefn(i).GetName()
-    #                     if field_name.startswith(prefix_fields_to_join):
-    #                         value = feature[field_name]
-    #                         str_value = '0.000'
-    #                         if value:
-    #                             str_value = "{:.3f}".format(value)
-    #                         out_feature.SetField(field_name, value)
-    #                         field_name_strings = field_name.split(CONST_VALUES_STRING_SEPARATOR)
-    #                         str_date = CONST_DATE_PREFIX + field_name_strings[0]
-    #                         str_value_name = field_name_strings[1]
-    #                         if str_value_name.startswith('c'):
-    #                             str_value_name = CONST_CSV_COUNT_HEADER
-    #                         elif str_value_name.startswith('m'):
-    #                             str_value_name = CONST_CSV_NDVI_MEAN_HEADER
-    #                         elif str_value_name.startswith('s'):
-    #                             str_value_name = CONST_CSV_NDVI_STD_HEADER
-    #                         if not str_date in values_by_date:
-    #                             values_by_date[str_date] = {}
-    #                         values_by_date[str_date][str_value_name] = str_value
-    #                 out_layer.SetFeature(out_feature)
-    #         out_layer.ResetReading()
-    #     in_vec_ds = None
-    #     cont = cont + 1
-    # if exists(output_csv):
-    #     os.remove(output_csv)
-    #     if exists(output_csv):
-    #         str_error = ("Error removing existing output CSV:\n{}".format(output_csv))
-    #         return str_error
-    # output_csv_base_path = os.path.dirname(output_shp)
-    # output_csv_base_name = os.path.splitext(os.path.basename(output_shp))[0]
-    # output_graph = output_csv_base_path + '\\' + output_csv_base_name + '.png'
-    # if exists(output_graph):
-    #     os.remove(output_graph)
-    #     if exists(output_graph):
-    #         str_error = ("Error removing existing output graph file:\n{}".format(output_graph))
-    #         return str_error
-    # file_csv = None
-    # try:
-    #     file_csv = open(output_csv, "w")
-    # except IOError:
-    #     str_error = ("Error opening output CSV:\n{}".format(output_csv))
-    #     return str_error
-    # x = []
-    # y = []
-    # file_csv.write('%s,%s,%s,%s\n'%(CONST_CSV_DATE_HEADER, CONST_CSV_COUNT_HEADER, CONST_CSV_NDVI_MEAN_HEADER, CONST_CSV_NDVI_STD_HEADER))
-    # for str_date in values_by_date:
-    #     # year = int(str_date[:4])
-    #     # month = int(str_date[4:2])
-    #     # day = int(str_date[6:2])
-    #     # jd = julian_date(day, month, year)
-    #     # jd_year = julian_date(day, month, year)
-    #     str_count = str(int(float(values_by_date[str_date][CONST_CSV_COUNT_HEADER])))
-    #     str_mean = values_by_date[str_date][CONST_CSV_NDVI_MEAN_HEADER]
-    #     str_std = values_by_date[str_date][CONST_CSV_NDVI_STD_HEADER]
-    #     file_csv.write('%s,%s,%s,%s\n'%(str_date, str_count, str_mean, str_std))
-    #     x.append(str_date)
-    #     y.append(float(str_mean))
-    # file_csv.close()
-    # plt.plot(x, y, color='g', linestyle='dashed', marker='o', label="NDVI time series")
-    # plt.xticks(rotation=90)
-    # plt.xlabel('Dates')
-    # plt.ylabel('NDVI')
-    # plt.title('NDVI time series', fontsize=10)
-    # plt.grid()
-    # plt.legend()
-    # plt.savefig(output_graph, bbox_inches='tight')
-    # # plt.show()
     return str_error
 
 def main():
