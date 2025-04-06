@@ -48,7 +48,6 @@ sys.path.append(pluginPath)
 from . import definitions
 
 class RemoteSensingARDTimeSeriesDownloader:
-    """QGIS Plugin Implementation."""
 
     def __init__(self, iface):
         """Constructor.
