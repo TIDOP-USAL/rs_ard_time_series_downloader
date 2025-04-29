@@ -39,4 +39,9 @@ Pre-requisites:
   - import pip
   - pip.main(["install","openeo"])
 
+Documentation:
+- .\docs\IntroduccionCopernicusBrowser.pdf
+- .\docs\Practica_1_CopernicusBrowser_2024-25.pdf
+- .\docs\Practica_2_PythonToolsQGIS_2024-25.pdf
+
 
