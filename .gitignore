@@ -1,7 +1,7 @@
 **/debug
 **/release
 **/.idea
-**/_pycache_
+**/__pycache__
 
 **/*.obj
 **/*.pro.user
