@@ -2,6 +2,7 @@
 **/release
 **/.idea
 **/__pycache__
+__pycache__/
 
 **/*.obj
 **/*.pro.user
